@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>GeoSwitch VPN — Servers</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #14161a;
+      color: #e6e8eb;
+      padding: 24px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    h1 { font-size: 18px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 16px;
+    }
+    th, td {
+      padding: 6px;
+      text-align: left;
+      font-size: 13px;
+    }
+    th { color: #9ca3af; font-weight: 500; }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 6px;
+      border-radius: 4px;
+      border: 1px solid #333;
+      background: #1e2126;
+      color: #e6e8eb;
+      font-size: 13px;
+    }
+    button {
+      padding: 8px 14px;
+      border: none;
+      border-radius: 6px;
+      background: #3b82f6;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    button.secondary {
+      background: #374151;
+    }
+    #toolbar {
+      margin-top: 16px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    #saved-msg {
+      color: #22c55e;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Manage VPN Servers</h1>
+  <p style="color:#9ca3af; font-size:13px;">
+    Enter the host/port/credentials for each SOCKS5 proxy server you've set up (see Track A of the plan).
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Label</th>
+        <th>Country code</th>
+        <th>Host</th>
+        <th>Port</th>
+        <th>Username</th>
+        <th>Password</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="servers-body"></tbody>
+  </table>
+  <div id="toolbar">
+    <button id="add-btn" class="secondary">Add server</button>
+    <button id="save-btn">Save</button>
+    <span id="saved-msg"></span>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>

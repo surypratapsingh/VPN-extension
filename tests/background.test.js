@@ -1,0 +1,230 @@
+// Runs the real background.js in a VM with a fake browser whose fetch() obeys the PAC script
+// the extension generates, and fake proxies with scripted latency / death / wrong country.
+// Run: node tests/background.test.js
+const vm = require("vm");
+const fs = require("fs");
+const path = require("path");
+const SRC = fs.readFileSync(process.env.BG || path.join(__dirname, "..", "background.js"), "utf8");
+
+// Same format as a real https://<host>/cdn-cgi/trace reply.
+const trace = (host, ip, cc) => `fl=1f1
+h=${host}
+ip=${ip}
+ts=1758800000.1
+visit_scheme=https
+uag=Mozilla
+colo=FRA
+http=http/2
+loc=${cc}
+tls=TLSv1.3
+`;
+
+function env({ proxies = {}, pool = [], listMs = 0, listFails = false, seed = {} }) {
+  const store = structuredClone(seed);
+  let config = null;
+  const log = { pacs: [], applied: [], fetches: [], states: [] };
+  let onMessage = null;
+
+  const chrome = {
+    storage: {
+      local: {
+        get: async (keys) => {
+          const out = {};
+          for (const k of Array.isArray(keys) ? keys : [keys]) if (k in store) out[k] = structuredClone(store[k]);
+          return out;
+        },
+        set: async (obj) => {
+          Object.assign(store, structuredClone(obj));
+          if (obj.state) log.states.push(structuredClone(obj.state));
+        },
+        remove: async (k) => { delete store[k]; }
+      }
+    },
+    proxy: {
+      settings: {
+        set: async ({ value }) => {
+          config = value;
+          if (value.mode === "pac_script") log.pacs.push(value.pacScript.data);
+          else log.applied.push(`${value.rules.singleProxy.host}:${value.rules.singleProxy.port}`);
+        },
+        clear: async () => { config = null; log.applied.push("CLEARED"); }
+      }
+    },
+    webRequest: { onAuthRequired: { addListener: () => {} } },
+    runtime: { onMessage: { addListener: (fn) => { onMessage = fn; } } }
+  };
+
+  function route(url, host) {
+    if (!config) return "DIRECT";
+    if (config.mode === "fixed_servers") return `SOCKS5 ${config.rules.singleProxy.host}:${config.rules.singleProxy.port}`;
+    const pac = vm.createContext({});
+    vm.runInContext(config.pacScript.data, pac); // throws if the generated PAC isn't valid JS
+    return pac.FindProxyForURL(url, host);
+  }
+
+  function fetch(url, opts = {}) {
+    const host = new URL(url).hostname;
+    if (host === "api.proxyscrape.com") {
+      return new Promise((resolve, reject) =>
+        setTimeout(() => (listFails ? reject(new TypeError("Failed to fetch")) : resolve({ ok: true, json: async () => ({ proxies: pool }) })), listMs)
+      );
+    }
+    const via = route(url, host);
+    log.fetches.push({ host, via });
+    const b = via === "DIRECT" ? { ms: 5, ip: "REAL-IP", cc: "IN" } : proxies[via.replace("SOCKS5 ", "")];
+    if (!b) return Promise.reject(new Error(`no such proxy: ${via}`));
+    return new Promise((resolve, reject) => {
+      const abort = () => reject(new DOMException("aborted", "AbortError"));
+      if (opts.signal) {
+        if (opts.signal.aborted) return abort();
+        opts.signal.addEventListener("abort", abort);
+      }
+      if (b.hang) return;
+      setTimeout(() => (b.dead ? reject(new TypeError("Failed to fetch")) : resolve({ ok: true, text: async () => (b.html ? "<html><title>Access denied</title></html>" : trace(host, b.ip || via, b.cc)) })), b.ms);
+    });
+  }
+
+  vm.runInContext(SRC, vm.createContext({ chrome, fetch, AbortController, setTimeout, clearTimeout, performance, console, URL, DOMException }));
+  const send = (msg) => new Promise((res) => onMessage(msg, {}, res));
+  const settle = async (n0) => {
+    for (let i = 0; i < 400; i++) {
+      const last = log.states[log.states.length - 1];
+      if (log.states.length > n0 && last.status !== "connecting") return last;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    throw new Error("never settled");
+  };
+  const connect = async (msg) => {
+    const n0 = log.states.length;
+    const t0 = performance.now();
+    await send(msg);
+    const final = await settle(n0);
+    return { final, ms: performance.now() - t0 };
+  };
+  return { send, connect, store, log };
+}
+
+const listing = (host, port, cc, uptime) => ({ alive: true, ip: host, port, uptime, ip_data: { countryCode: cc, country: cc } });
+
+let failures = 0;
+function check(name, cond, detail = "") {
+  console.log(`${cond ? "PASS" : "FAIL"}  ${name}${detail ? `  (${detail})` : ""}`);
+  if (!cond) failures++;
+}
+
+(async () => {
+  // --- 1. Race picks the fastest proxy that really exits in the requested country
+  const P = {
+    "10.0.0.1:1080": { ms: 900, cc: "DE" },
+    "10.0.0.2:1080": { ms: 300, cc: "DE" },
+    "10.0.0.3:1080": { dead: true, ms: 50 },
+    "10.0.0.4:1080": { ms: 150, cc: "CA" }, // fastest, but mislabeled: must lose
+    "10.0.0.5:1080": { hang: true },         // must not hold up the race
+    "10.0.0.6:1080": { ms: 600, cc: "DE" }
+  };
+  const pool1 = Object.keys(P).map((k, i) => listing(k.split(":")[0], 1080, "DE", 99 - i));
+  const e1 = env({ proxies: P, pool: pool1 });
+  const r1 = await e1.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  check("connects", r1.final.status === "connected");
+  check("picks fastest correct-country proxy, not first-listed or mislabeled", r1.final.proxy?.host === "10.0.0.2", r1.final.proxy?.host);
+  check("does not wait for the hanging proxy", r1.ms < 1500, `${Math.round(r1.ms)}ms`);
+  check("reports measured latency", r1.final.latencyMs >= 280 && r1.final.latencyMs < 500, `${r1.final.latencyMs}ms`);
+  check("browser left on the winner as a fixed proxy", e1.log.applied.at(-1) === "10.0.0.2:1080", e1.log.applied.at(-1));
+  const routed = new Map(e1.log.fetches.map((f) => [f.host, f.via]));
+  check("PAC sent 6 checker hosts through 6 different proxies", new Set(routed.values()).size === 6 && routed.size === 6, [...routed.values()].join(" "));
+  check("PAC routes other traffic DIRECT when not already connected", e1.log.pacs[0].includes('"DIRECT"'));
+
+  // --- 2. Rotation re-races the untested/aborted survivors, and routes other traffic via the current proxy meanwhile
+  const r2 = await e1.connect({ type: "CONNECT_FREE", countryCode: "DE", skip: r1.final.tried });
+  check("rotation connects to a different proxy", r2.final.status === "connected" && r2.final.proxy.host !== "10.0.0.2", r2.final.proxy?.host);
+  check("rotation picks the faster survivor (600ms over 900ms)", r2.final.proxy?.host === "10.0.0.6", r2.final.proxy?.host);
+  check("during rotation, browsing stays on the current proxy", e1.log.pacs.at(-1).includes('"SOCKS5 10.0.0.2:1080"'));
+
+  // --- 3. Rotation that finds nothing keeps the working proxy
+  const r3 = await e1.connect({ type: "CONNECT_FREE", countryCode: "DE", skip: pool1.map((p) => `${p.ip}:${p.port}`) });
+  check("failed rotation stays connected", r3.final.status === "connected" && r3.final.proxy.host === "10.0.0.6", r3.final.status);
+  check("failed rotation explains itself", /Stayed on the current proxy|No untested/.test(r3.final.note || r3.final.lastError || ""), r3.final.note);
+
+  // --- 4. First round all bad -> second round wins
+  const Q = {};
+  const pool4 = [];
+  for (let i = 1; i <= 12; i++) {
+    const k = `10.1.0.${i}:1080`;
+    Q[k] = i <= 5 ? { dead: true, ms: 40 } : i === 6 ? { ms: 80, cc: "US" } : i === 9 ? { ms: 200, cc: "FR" } : { dead: true, ms: 40 };
+    pool4.push(listing(`10.1.0.${i}`, 1080, "FR", 100 - i));
+  }
+  const e4 = env({ proxies: Q, pool: pool4 });
+  const r4 = await e4.connect({ type: "CONNECT_FREE", countryCode: "FR" });
+  check("second round finds the proxy", r4.final.status === "connected" && r4.final.proxy.host === "10.1.0.9", r4.final.proxy?.host);
+  check("two PAC rounds were used", e4.log.pacs.length === 2, `${e4.log.pacs.length}`);
+  check("progress reported round 2 of 2", e4.log.states.some((s) => s.status === "connecting" && s.round === 2 && s.rounds === 2));
+
+  // --- 5. Everything hangs: bounded by the 5s probe timeout, then a clear error
+  const H = {};
+  const pool5 = [];
+  for (let i = 1; i <= 6; i++) {
+    H[`10.2.0.${i}:1080`] = { hang: true };
+    pool5.push(listing(`10.2.0.${i}`, 1080, "JP", 90));
+  }
+  const e5 = env({ proxies: H, pool: pool5 });
+  const r5 = await e5.connect({ type: "CONNECT_FREE", countryCode: "JP" });
+  check("all-hanging round gives up at the probe timeout", r5.ms > 4800 && r5.ms < 6500, `${Math.round(r5.ms)}ms`);
+  check("then disconnects with an explanation", r5.final.status === "disconnected" && /didn't respond within 5s/.test(r5.final.lastError), r5.final.lastError);
+  check("never left the browser on an untested proxy", e5.log.applied.at(-1) === "CLEARED");
+
+  // --- 6. Only mislabeled proxies (the NL case): refuse, name where they really exit
+  const N = { "10.3.0.1:1080": { ms: 100, cc: "CA" }, "10.3.0.2:1080": { ms: 120, cc: "BR" } };
+  const e6 = env({ proxies: N, pool: [listing("10.3.0.1", 1080, "NL", 99), listing("10.3.0.2", 1080, "NL", 98)] });
+  const r6 = await e6.connect({ type: "CONNECT_FREE", countryCode: "NL" });
+  check("mislabeled-only country refuses to connect", r6.final.status === "disconnected", r6.final.status);
+  check("error names the real exit countries", /wrong country \((CA, BR|BR, CA)\)/.test(r6.final.lastError), r6.final.lastError);
+  check("fast even when refusing", r6.ms < 1000, `${Math.round(r6.ms)}ms`);
+
+  // --- 7. Hostile list entries can't reach the generated PAC script
+  const bad = [
+    listing('1.2.3.4";alert(1);//', 1080, "US", 99),
+    listing("2001:db8::1", 1080, "US", 99),
+    { ...listing("5.6.7.8", "80a", "US", 99) },
+    listing("9.9.9.9", 70000, "US", 99),
+    listing("8.8.4.4", 1080, "US", 50)
+  ];
+  const e7 = env({ pool: bad });
+  const init7 = await e7.send({ type: "GET_INIT" });
+  const us = init7.countries.find((c) => c.country === "US");
+  check("only the valid IPv4:port entry survives", us?.count === 1 && e7.store.pool.length === 1 && e7.store.pool[0].host === "8.8.4.4", JSON.stringify(e7.store.pool?.map((p) => p.host)));
+
+  // --- 8. Popup opens instantly from a stale cache and refreshes in the background
+  const e8 = env({ pool: [listing("7.7.7.7", 1080, "GB", 99)], listMs: 400, seed: { pool: [{ host: "6.6.6.6", port: 1080, country: "GB", countryName: "GB", uptime: 1 }], poolFetchedAt: 1 } });
+  const t8 = performance.now();
+  const init8 = await e8.send({ type: "GET_INIT" });
+  const openMs = performance.now() - t8;
+  check("popup data returned without waiting for the network", openMs < 150 && init8.countries.length === 1, `${Math.round(openMs)}ms`);
+  await new Promise((r) => setTimeout(r, 600));
+  check("stale list refreshed in the background", e8.store.poolFetchedAt > 1 && e8.store.pool[0].host === "7.7.7.7");
+
+  // --- 9. Custom server: dead one fails fast instead of 3 x 9s
+  const e9 = env({ proxies: { "10.9.0.1:1080": { dead: true, ms: 30 }, "10.9.0.2:1080": { ms: 120, cc: "SG" } }, seed: { servers: [
+    { id: "a", label: "Dead box", country: "SG", host: "10.9.0.1", port: 1080 },
+    { id: "b", label: "Good box", country: "SG", host: "10.9.0.2", port: 1080 }
+  ] } });
+  const r9a = await e9.connect({ type: "CONNECT_CUSTOM", serverId: "a" });
+  check("dead custom server fails fast", r9a.final.status === "disconnected" && r9a.ms < 1000, `${Math.round(r9a.ms)}ms`);
+  const r9b = await e9.connect({ type: "CONNECT_CUSTOM", serverId: "b" });
+  check("good custom server connects with latency", r9b.final.status === "connected" && r9b.final.latencyMs > 0, `${r9b.final.latencyMs}ms`);
+
+  // --- 10. List download failure with no cache surfaces an error instead of hanging on "Connecting…"
+  const e10 = env({ listFails: true });
+  const r10 = await e10.connect({ type: "CONNECT_FREE", countryCode: "US" });
+  check("list failure is reported, not stuck", r10.final.status === "disconnected" && /Could not load proxy list/.test(r10.final.lastError), r10.final.lastError);
+
+  // --- 11. A proxy that answers fast with a block page (not a trace) must not win
+  const B = { "10.4.0.1:1080": { ms: 40, html: true }, "10.4.0.2:1080": { ms: 250, cc: "US" } };
+  const e11 = env({ proxies: B, pool: [listing("10.4.0.1", 1080, "US", 99), listing("10.4.0.2", 1080, "US", 98)] });
+  const r11 = await e11.connect({ type: "CONNECT_FREE", countryCode: "US" });
+  check("block-page proxy rejected, real one wins", r11.final.status === "connected" && r11.final.proxy.host === "10.4.0.2", r11.final.proxy?.host);
+  check("country name filled in from the code", r11.final.info?.country === "United States", r11.final.info?.country);
+  check("all racing hosts are Cloudflare trace endpoints", e11.log.fetches.every((f) => /(cloudflare\.com|one\.one\.one\.one)$/.test(f.host)), [...new Set(e11.log.fetches.map((f) => f.host))].join(" "));
+
+  console.log(failures ? `\n${failures} FAILED` : "\nALL PASSED");
+  process.exit(failures ? 1 : 0);
+})();
