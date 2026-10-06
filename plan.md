@@ -23,5 +23,5 @@ A free Chrome/Edge MV3 extension that routes the browser through public SOCKS5 p
 - [x] Speed (2026-09-25): parallel racing, fastest-proxy pick, fail-fast probes, instant popup. Worst-case connect 28.6s -> 4.4s on the same proxies
 - [x] Checker bug fixed (2026-09-25): per-slot third-party checkers misjudged proxies; all slots now use Cloudflare trace
 - [x] Tests: simulated-browser suite (30 checks) + real-Edge E2E for connect and popup
-- [ ] Put the folder under git
+- [x] Put the folder under git (private repo: https://github.com/surypratapsingh/VPN-extension)
 - [ ] Decide next improvements: auto-rotate when pages fail through the current proxy (seen with a Russian proxy); more proxy sources for thin countries

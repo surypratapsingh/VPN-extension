@@ -1,6 +1,11 @@
 # Progress Log
 Newest entry first. Each entry: Done / In progress / Next / Blockers.
 
+## 2026-10-06 - Put on GitHub
+- Done: `git init` (branch `main`), first commit, `.gitattributes` keeps `*.sh` LF. Pushed to the private repo https://github.com/surypratapsingh/VPN-extension.
+- Next: user reloads the extension in chrome://extensions and tries it by hand. Possible: auto-rotate when pages fail through the proxy.
+- Blockers: none.
+
 ## 2026-09-25 - Speed: parallel racing, and a checker bug found by real-browser testing
 - Done: Connect now races 6 proxies at once through a PAC script (one Cloudflare trace hostname per proxy) and keeps the first right-country answer, i.e. the fastest. Probes fail fast (5s, no retries through other checkers). Popup opens from cache and refreshes the list in the background; shows race progress and the proxy's latency. "Try another" keeps browsing on the current proxy while racing and stays put if nothing better turns up. Fixed: a connect error could leave the popup stuck on "Connecting…"; the two-line status rendered as one line.
 - Measured: on the same 148 proxies / 14 countries, worst-case connect 28.6s -> 4.4s, p90 6.6s -> 1.7s. Real headless Edge with the extension loaded: DE, FR, US, GB, JP, NL all connected in 0.8-1.7s, a normal tab confirmed each exit country, Wikipedia loaded in 1.2-2.4s.
