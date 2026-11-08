@@ -51,7 +51,7 @@ function env({ proxies = {}, pool = [], listMs = 0, listFails = false, seed = {}
         clear: async () => { config = null; log.applied.push("CLEARED"); }
       }
     },
-    webRequest: { onAuthRequired: { addListener: () => {} }, onErrorOccurred: { addListener: (fn) => { onErrorOccurred = fn; } } },
+    webRequest: { onAuthRequired: { addListener: () => {} }, onErrorOccurred: { addListener: (fn, filter) => { onErrorOccurred = fn; log.errorFilter = filter; } } },
     runtime: { onMessage: { addListener: (fn) => { onMessage = fn; } } }
   };
 
@@ -258,6 +258,7 @@ function check(name, cond, detail = "") {
   const e12 = env({ proxies: A, pool: poolA });
   const r12 = await e12.connect({ type: "CONNECT_FREE", countryCode: "DE" });
   check("V1 setup connects", r12.final.status === "connected" && r12.final.proxy.host === "10.5.0.1");
+  check("V1 onErrorOccurred registered with <all_urls> filter (Edge signature)", e12.log.errorFilter?.urls?.[0] === "<all_urls>", JSON.stringify(e12.log.errorFilter));
   const n12 = e12.log.states.length;
   await e12.fireError({ type: "main_frame", error: "net::ERR_PROXY_CONNECTION_FAILED", url: "https://example.com/" });
   await new Promise((r) => setTimeout(r, 150));

@@ -489,9 +489,20 @@ async function handleNavError(details) {
 }
 
 if (chrome.webRequest.onErrorOccurred) {
-  chrome.webRequest.onErrorOccurred.addListener((details) => {
+  const onNavError = (details) => {
     handleNavError(details).catch(() => {});
-  });
+  };
+  // Edge (Chromium 156, measured 2026-11-08) throws `TypeError: No matching signature`
+  // for onErrorOccurred.addListener(callback) and needs the filter argument, while
+  // Chrome accepts either. Try the filter form first, fall back to the plain form,
+  // and never let a registration failure kill the service worker.
+  try {
+    chrome.webRequest.onErrorOccurred.addListener(onNavError, { urls: ["<all_urls>"] });
+  } catch {
+    try {
+      chrome.webRequest.onErrorOccurred.addListener(onNavError);
+    } catch {}
+  }
 }
 
 chrome.webRequest.onAuthRequired.addListener(

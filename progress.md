@@ -1,6 +1,12 @@
 # Progress Log
 Newest entry first. Each entry: Done / In progress / Next / Blockers.
 
+## 2026-11-08 - Fix: Edge onErrorOccurred registration (found by live E2E)
+- Done: Real headless Edge would not load the extension with V1's `chrome.webRequest.onErrorOccurred.addListener(handler)` - Edge (Chromium 156) throws `TypeError: No matching signature` at service-worker startup, killing the worker (bisected: access alone is fine, addListener(handler) throws, addListener(handler, {urls:["<all_urls>"]}) succeeds). Registration now tries the filter form first, falls back to the plain form, never throws. No manifest change.
+- Tested: `node tests/background.test.js` ALL PASSED (55 checks, incl. new filter check); `node tests/e2e-popup.js` PASSED (loaded, GB connect 2.7s, Try another 0.8s, Refresh, Disconnect, 0 JS errors).
+- Could not do: none.
+- Unsure of: whether Chrome MV3 accepts the filter form first (it should - filter is in Chrome's webRequest signature; the fallback covers it if not).
+
 ## 2026-11-08 - V2 More proxy sources for thin countries
 - Done: Two extra keyless/signup-free sources: HProxy (`https://hproxy.com/api/proxy-list?format=json&protocol=socks5`, ip/port/country_code/uptime_pct) and monosans/proxy-list (`proxies.json` on GitHub, socks5 only, geolocation country + response timeout). When the primary ProxyScrape pool has <10 proxies for the requested country, extras are fetched in parallel (allSettled, 3s timeout each), merged after the primary pool in source order (fallback order), deduplicated by host:port, and cached 10 min (same TTL as primary, stored as extraPool). A failing/hanging/empty source falls back to the stale extra cache or the primary pool alone. Exit country is still only the measured Cloudflare check; extra labels are hints only (same IPv4/port/country-code validation as primary for PAC safety).
 - Tested: `node tests/background.test.js` - ALL PASSED, 54 checks (44 prior + 10 new: thin merge, fallback order, dedupe, cache store/use with no fetch, failing source, empty sources, hang timeout ~3.1s, thick-country skip, mislabeled extra rejected).
