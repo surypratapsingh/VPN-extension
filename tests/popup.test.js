@@ -136,6 +136,12 @@ const checks = [
     await els["rotate-btn"].listeners.click[0]();
     assert.deepEqual(sent.at(-1), { type: "CONNECT_FREE", countryCode: "DE", skip: ["1.1.1.1:80"] });
   }],
+  ["no proxies disables Connect and says so", async () => {
+    const { els } = await boot({ countries: [], servers: [], state: { status: "disconnected" } });
+    assert.deepEqual(els["server-select"].options.map((o) => o.textContent), ["No proxies available"]);
+    assert.equal(els["connect-btn"].disabled, true);
+    assert.equal(els["pool-info"].textContent, "Proxy list unavailable — hit Refresh");
+  }],
   ["Custom servers link opens the options page", async () => {
     const { els, optionsOpened } = await boot(SETTLED);
     els["options-link"].listeners.click[0]();
