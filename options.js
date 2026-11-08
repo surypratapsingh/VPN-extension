@@ -6,21 +6,43 @@ const autoSwitchEl = document.getElementById("auto-switch");
 
 let servers = [];
 
+// Stored server fields are user text: set them with .value / textContent, never as HTML.
+const FIELDS = [
+  { field: "label", label: "Label", type: "text" },
+  { field: "country", label: "Country code", type: "text", maxLength: 2 },
+  { field: "host", label: "Host", type: "text" },
+  { field: "port", label: "Port", type: "number" },
+  { field: "username", label: "Username", type: "text" },
+  { field: "password", label: "Password", type: "password" }
+];
+
+function rowFor(s, i) {
+  const tr = document.createElement("tr");
+  for (const f of FIELDS) {
+    const input = document.createElement("input");
+    input.setAttribute("aria-label", f.label);
+    input.type = f.type;
+    if (f.maxLength) input.maxLength = f.maxLength;
+    input.dataset.field = f.field;
+    input.dataset.i = String(i);
+    input.value = s[f.field] ?? "";
+    const td = document.createElement("td");
+    td.appendChild(input);
+    tr.appendChild(td);
+  }
+  const remove = document.createElement("button");
+  remove.className = "secondary";
+  remove.dataset.remove = String(i);
+  remove.textContent = "Remove";
+  const td = document.createElement("td");
+  td.appendChild(remove);
+  tr.appendChild(td);
+  return tr;
+}
+
 function render() {
   tbody.innerHTML = "";
-  servers.forEach((s, i) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td><input aria-label="Label" data-field="label" data-i="${i}" value="${s.label}"></td>
-      <td><input aria-label="Country code" data-field="country" data-i="${i}" value="${s.country}" maxlength="2"></td>
-      <td><input aria-label="Host" data-field="host" data-i="${i}" value="${s.host}"></td>
-      <td><input aria-label="Port" data-field="port" data-i="${i}" value="${s.port}" type="number"></td>
-      <td><input aria-label="Username" data-field="username" data-i="${i}" value="${s.username}"></td>
-      <td><input aria-label="Password" data-field="password" data-i="${i}" value="${s.password}" type="password"></td>
-      <td><button data-remove="${i}" class="secondary">Remove</button></td>
-    `;
-    tbody.appendChild(tr);
-  });
+  servers.forEach((s, i) => tbody.appendChild(rowFor(s, i)));
 }
 
 tbody.addEventListener("input", (e) => {
