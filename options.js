@@ -11,12 +11,12 @@ function render() {
   servers.forEach((s, i) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td><input data-field="label" data-i="${i}" value="${s.label}"></td>
-      <td><input data-field="country" data-i="${i}" value="${s.country}" maxlength="2"></td>
-      <td><input data-field="host" data-i="${i}" value="${s.host}"></td>
-      <td><input data-field="port" data-i="${i}" value="${s.port}" type="number"></td>
-      <td><input data-field="username" data-i="${i}" value="${s.username}"></td>
-      <td><input data-field="password" data-i="${i}" value="${s.password}" type="password"></td>
+      <td><input aria-label="Label" data-field="label" data-i="${i}" value="${s.label}"></td>
+      <td><input aria-label="Country code" data-field="country" data-i="${i}" value="${s.country}" maxlength="2"></td>
+      <td><input aria-label="Host" data-field="host" data-i="${i}" value="${s.host}"></td>
+      <td><input aria-label="Port" data-field="port" data-i="${i}" value="${s.port}" type="number"></td>
+      <td><input aria-label="Username" data-field="username" data-i="${i}" value="${s.username}"></td>
+      <td><input aria-label="Password" data-field="password" data-i="${i}" value="${s.password}" type="password"></td>
       <td><button data-remove="${i}" class="secondary">Remove</button></td>
     `;
     tbody.appendChild(tr);

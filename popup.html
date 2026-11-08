@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <title>GeoSwitch</title>
@@ -47,14 +47,14 @@
       padding: 10px;
       border: none;
       border-radius: 6px;
-      background: var(--accent);
+      background: #2563eb; /* white text needs 4.5:1; --accent #3b82f6 gives 3.7:1 */
       color: #fff;
       font-weight: 600;
       cursor: pointer;
       font-size: 13px;
     }
     button:disabled { opacity: 0.55; cursor: default; }
-    button.danger { background: var(--bad); }
+    button.danger { background: #dc2626; }
     button.ghost {
       background: transparent;
       border: 1px solid var(--border);
@@ -97,7 +97,7 @@
 <body>
   <h1>🌐 GeoSwitch</h1>
   <div id="pool-info">Loading free proxy pool…</div>
-  <select id="server-select"></select>
+  <select id="server-select" aria-label="Country"></select>
   <button id="connect-btn" disabled>Connect</button>
   <button id="rotate-btn" class="ghost" hidden>Try another proxy</button>
   <div id="status" class="disconnected">Not connected</div>
