@@ -1,6 +1,12 @@
 # Progress Log
 Newest entry first. Each entry: Done / In progress / Next / Blockers.
 
+## 2026-11-08 - CI workflow + bug review (branch friend/ci)
+- Done: `.github/workflows/ci.yml` runs `node --test tests/*.test.js` on push and pull_request (Node 22, checkout/setup-node v5). README Tests section names the CI and says the e2e scripts stay manual. Reviewed `background.js` and `options.js` for listener, storage and rotation/race bugs: none found that is clear enough to fix. Two narrow races noted, not changed: (1) a Disconnect clicked in the short window before auto-rotation's first `connecting` state is overwritten when `connectFree` applies its proxy; (2) two main-frame failures arriving at the same instant can read the same `autoFailures` list and lose one count.
+- Tested: `node --test tests/*.test.js` - `# tests 3`, `# pass 3`, `# fail 0` (~16s). Workflow YAML parses with js-yaml; steps are checkout@v5, setup-node@v5, `node --test tests/*.test.js`.
+- Could not do: CI itself (no push; the workflow has not run on GitHub yet).
+- Unsure of: whether races (1) and (2) are worth a generation-token fix; both need a click or a same-millisecond error to show up.
+
 ## 2026-11-08 - V3 Docs + final summary
 - Done: README.md documents auto-switch (what it does, same-country, 60s/2-failure/30s rules, popup note, how to turn off via Options), the two extra sources (HProxy + monosans/proxy-list, <10 thin-country merge, labels-are-hints), updated test count (54 -> 55). Banking/logins/privacy warning kept, unchanged. plan.md: both next-improvement items ticked with test evidence. decisions.md: entries for V1 (thresholds, no new permission, Edge signature), V2 (sources + why, 3s cap, fallback order), and the Edge fix.
 - Tested: `node tests/background.test.js` ALL PASSED (55 checks); `node tests/e2e-popup.js` PASSED (Edge installed at default path; connect/rotate/refresh/disconnect, 0 JS errors).

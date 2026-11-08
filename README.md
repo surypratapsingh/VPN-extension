@@ -107,6 +107,10 @@ follow the PAC script the extension generates (55 checks, ~10s, no network), inc
 the auto-switch thresholds/window/cooldown and the extra-source merge, dedupe,
 failure and cache behavior.
 
+CI (`.github/workflows/ci.yml`) runs `node --test tests/*.test.js` on every push
+and pull request (Node 22). The two `e2e-*.js` scripts need a real Edge and stay
+manual.
+
 ```bash
 node tests/e2e-popup.js
 ```
