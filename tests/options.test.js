@@ -81,7 +81,8 @@ const HOST_ERRORS = [
   ["exa mple.com", "Not a valid host name."],
   ["1.2.3.4:1080", "Put the port in the Port field, not the host."],
   ["2001:db8::1::2", "Not a valid IPv6 address."],
-  ["http://example.com", "Not a valid IPv6 address."],
+  ["http://example.com", "Enter only the host name, without http:// or a path."],
+  ["example.com/path", "Enter only the host name, without http:// or a path."],
 ];
 for (const [raw, want] of HOST_CASES) {
   const got = ctx.checkHost(raw);
