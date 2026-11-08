@@ -24,6 +24,7 @@ function env({ proxies = {}, pool = [], listMs = 0, listFails = false, seed = {}
   let config = null;
   const log = { pacs: [], applied: [], fetches: [], states: [] };
   let onMessage = null;
+  let onErrorOccurred = null;
 
   const chrome = {
     storage: {
@@ -50,7 +51,7 @@ function env({ proxies = {}, pool = [], listMs = 0, listFails = false, seed = {}
         clear: async () => { config = null; log.applied.push("CLEARED"); }
       }
     },
-    webRequest: { onAuthRequired: { addListener: () => {} } },
+    webRequest: { onAuthRequired: { addListener: () => {} }, onErrorOccurred: { addListener: (fn) => { onErrorOccurred = fn; } } },
     runtime: { onMessage: { addListener: (fn) => { onMessage = fn; } } }
   };
 
@@ -101,7 +102,16 @@ function env({ proxies = {}, pool = [], listMs = 0, listFails = false, seed = {}
     const final = await settle(n0);
     return { final, ms: performance.now() - t0 };
   };
-  return { send, connect, store, log };
+  const fireError = async (details) => { if (onErrorOccurred) await onErrorOccurred(details); };
+  const settleAuto = async (n0) => {
+    for (let i = 0; i < 400; i++) {
+      const last = log.states[log.states.length - 1];
+      if (log.states.length > n0 && last.status !== "connecting") return last;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    throw new Error("auto-rotate never settled");
+  };
+  return { send, connect, store, log, fireError, settleAuto };
 }
 
 const listing = (host, port, cc, uptime) => ({ alive: true, ip: host, port, uptime, ip_data: { countryCode: cc, country: cc } });
@@ -224,6 +234,71 @@ function check(name, cond, detail = "") {
   check("block-page proxy rejected, real one wins", r11.final.status === "connected" && r11.final.proxy.host === "10.4.0.2", r11.final.proxy?.host);
   check("country name filled in from the code", r11.final.info?.country === "United States", r11.final.info?.country);
   check("all racing hosts are Cloudflare trace endpoints", e11.log.fetches.every((f) => /(cloudflare\.com|one\.one\.one\.one)$/.test(f.host)), [...new Set(e11.log.fetches.map((f) => f.host))].join(" "));
+
+  // --- 12. V1 auto-rotate: 2 proxy failures within 60s rotate, same country, note shown
+  const A = {
+    "10.5.0.1:1080": { ms: 100, cc: "DE" },
+    "10.5.0.2:1080": { ms: 120, cc: "DE" },
+    "10.5.0.3:1080": { ms: 140, cc: "DE" }
+  };
+  const poolA = Object.keys(A).map((k, i) => listing(k.split(":")[0], 1080, "DE", 99 - i));
+  const e12 = env({ proxies: A, pool: poolA });
+  const r12 = await e12.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  check("V1 setup connects", r12.final.status === "connected" && r12.final.proxy.host === "10.5.0.1");
+  const n12 = e12.log.states.length;
+  await e12.fireError({ type: "main_frame", error: "net::ERR_PROXY_CONNECTION_FAILED", url: "https://example.com/" });
+  await new Promise((r) => setTimeout(r, 150));
+  check("V1 one failure does not rotate", e12.store.state.proxy.host === "10.5.0.1" && e12.log.states.length === n12);
+  await e12.fireError({ type: "main_frame", error: "net::ERR_SOCKS_CONNECTION_FAILED", url: "https://example.com/" });
+  const r12b = await e12.settleAuto(n12);
+  check("V1 two failures within 60s rotate to next proxy", r12b.status === "connected" && r12b.proxy.host === "10.5.0.2", r12b.proxy?.host);
+  check("V1 auto-rotate keeps the same country", r12b.target === "DE" && r12b.info?.countryCode === "DE");
+  check("V1 popup note shown after auto-rotate", /Switched proxy: the last one failed/.test(r12b.note || ""), r12b.note);
+
+  // --- 13. V1 window: a failure older than 60s does not count toward the threshold
+  const e13 = env({ proxies: A, pool: poolA, seed: { state: { status: "connected", target: "DE", proxy: { host: "10.5.0.1", port: 1080 }, tried: ["10.5.0.1:1080"] }, autoFailures: [Date.now() - 61000] } });
+  await e13.fireError({ type: "main_frame", error: "net::ERR_TIMED_OUT", url: "https://example.com/" });
+  await new Promise((r) => setTimeout(r, 150));
+  check("V1 failure outside 60s window does not rotate", e13.store.state.proxy.host === "10.5.0.1");
+  await e13.fireError({ type: "main_frame", error: "net::ERR_TIMED_OUT", url: "https://example.com/" });
+  const r13 = await e13.settleAuto(e13.log.states.length);
+  check("V1 second fresh failure then rotates", r13.status === "connected" && r13.proxy.host === "10.5.0.2", r13.proxy?.host);
+
+  // --- 14. V1 cooldown: no second auto-rotate within 30s
+  const e14 = env({ proxies: A, pool: poolA, seed: { state: { status: "connected", target: "DE", proxy: { host: "10.5.0.1", port: 1080 }, tried: ["10.5.0.1:1080"] }, lastAutoRotateAt: Date.now() } });
+  await e14.fireError({ type: "main_frame", error: "net::ERR_PROXY_CONNECTION_FAILED", url: "https://example.com/" });
+  await e14.fireError({ type: "main_frame", error: "net::ERR_CONNECTION_RESET", url: "https://example.com/" });
+  await new Promise((r) => setTimeout(r, 200));
+  check("V1 cooldown blocks rotate within 30s", e14.store.state.proxy.host === "10.5.0.1" && e14.log.states.length === 0);
+
+  // --- 15. V1 off switch and errors that must NOT count
+  const e15 = env({ proxies: A, pool: poolA, seed: { state: { status: "connected", target: "DE", proxy: { host: "10.5.0.1", port: 1080 }, tried: ["10.5.0.1:1080"] }, autoSwitch: false } });
+  await e15.fireError({ type: "main_frame", error: "net::ERR_PROXY_CONNECTION_FAILED", url: "https://example.com/" });
+  await e15.fireError({ type: "main_frame", error: "net::ERR_PROXY_CONNECTION_FAILED", url: "https://example.com/" });
+  await new Promise((r) => setTimeout(r, 200));
+  check("V1 off switch prevents auto-rotate", e15.store.state.proxy.host === "10.5.0.1");
+
+  const e16 = env({ proxies: A, pool: poolA, seed: { state: { status: "connected", target: "DE", proxy: { host: "10.5.0.1", port: 1080 }, tried: ["10.5.0.1:1080"] } } });
+  await e16.fireError({ type: "main_frame", error: "net::ERR_ABORTED", url: "https://example.com/" });
+  await e16.fireError({ type: "main_frame", error: "net::ERR_NAME_NOT_RESOLVED", url: "https://example.com/" });
+  await e16.fireError({ type: "sub_frame", error: "net::ERR_PROXY_CONNECTION_FAILED", url: "https://example.com/" });
+  await e16.fireError({ type: "xmlhttprequest", error: "net::ERR_PROXY_CONNECTION_FAILED", url: "https://example.com/" });
+  await new Promise((r) => setTimeout(r, 200));
+  check("V1 ERR_ABORTED/other errors/sub-frame do not count", e16.store.state.proxy.host === "10.5.0.1" && e16.log.states.length === 0);
+  // A 404-like page error is not a webRequest onErrorOccurred at all; only the 5 listed errors count.
+  await e16.fireError({ type: "main_frame", error: "net::ERR_EMPTY_RESPONSE", url: "https://example.com/" });
+  await new Promise((r) => setTimeout(r, 150));
+  check("V1 single listed error still below threshold", e16.store.state.proxy.host === "10.5.0.1");
+  await e16.fireError({ type: "main_frame", error: "net::ERR_EMPTY_RESPONSE", url: "https://example.com/" });
+  const r16 = await e16.settleAuto(e16.log.states.length);
+  check("V1 ERR_EMPTY_RESPONSE counts toward threshold", r16.status === "connected" && r16.proxy.host === "10.5.0.2", r16.proxy?.host);
+
+  // --- 17. V1 settings round-trip (options page switch storage)
+  const s17 = await e16.send({ type: "GET_SETTINGS" });
+  check("V1 settings default on", s17.ok && s17.autoSwitch === true);
+  await e16.send({ type: "SAVE_SETTINGS", autoSwitch: false });
+  const s17b = await e16.send({ type: "GET_SETTINGS" });
+  check("V1 settings can be turned off and saved", s17b.autoSwitch === false);
 
   console.log(failures ? `\n${failures} FAILED` : "\nALL PASSED");
   process.exit(failures ? 1 : 0);

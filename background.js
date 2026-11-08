@@ -32,6 +32,21 @@ function parseTrace(text) {
   return { ip: fields.ip, countryCode: fields.loc, country, city: "" };
 }
 
+// Auto-rotate (V1): while connected through a free proxy, 2 proxy/connection failures
+// on main-frame navigations within 60s rotate to the next verified proxy for the same
+// country. At most one auto-rotate per 30s so a bad stretch cannot loop rotations.
+const AUTO_ROTATE_WINDOW_MS = 60 * 1000;
+const AUTO_ROTATE_THRESHOLD = 2;
+const AUTO_ROTATE_COOLDOWN_MS = 30 * 1000;
+const PROXY_ERRORS = new Set([
+  "net::ERR_PROXY_CONNECTION_FAILED",
+  "net::ERR_SOCKS_CONNECTION_FAILED",
+  "net::ERR_TIMED_OUT",
+  "net::ERR_CONNECTION_RESET",
+  "net::ERR_EMPTY_RESPONSE"
+]);
+const AUTO_ROTATE_NOTE = "Switched proxy: the last one failed";
+
 const LIST_TTL_MS = 10 * 60 * 1000;
 // Measured 2026-09-25: 4s dropped a country that 5s reached; beyond 5s only the slowest
 // ~10% of live proxies answer, and those make browsing slow anyway.
@@ -192,7 +207,7 @@ async function raceBatch(batch, countryCode, fallback) {
 
 const proxyKey = (p) => `${p.host}:${p.port}`;
 
-async function connectFree(countryCode, skip = []) {
+async function connectFree(countryCode, skip = [], auto = false) {
   const before = await getState();
   const previous = before.status === "connected" && before.proxy ? before : null;
   const fallback = previous ? `SOCKS5 ${proxyKey(previous.proxy)}` : "DIRECT";
@@ -229,6 +244,7 @@ async function connectFree(countryCode, skip = []) {
     if (result.winner) {
       await applyProxy(result.winner.host, result.winner.port);
       tried.push(proxyKey(result.winner));
+      await chrome.storage.local.set({ autoFailures: [] });
       await setState({
         status: "connected",
         target: countryCode,
@@ -236,7 +252,7 @@ async function connectFree(countryCode, skip = []) {
         info: result.info,
         latencyMs: result.info.ms,
         tried,
-        note: null,
+        note: auto ? AUTO_ROTATE_NOTE : null,
         lastError: null
       });
       return;
@@ -305,6 +321,7 @@ async function connectCustom(serverId) {
 }
 
 async function disconnect() {
+  await chrome.storage.local.set({ autoFailures: [] });
   await clearProxy();
   await setState({ status: "disconnected", target: null, proxy: null, info: null, latencyMs: null, tried: [], note: null, lastError: null });
 }
@@ -322,6 +339,57 @@ async function handleProxyAuth(details) {
   // Free proxies shouldn't need auth. Cancel rather than showing a browser login dialog,
   // so the probe fails fast and the race moves on.
   return { cancel: true };
+}
+
+// Auto-switch preference: stored as `autoSwitch`, default ON (anything but explicit false).
+async function getAutoSwitch() {
+  const { autoSwitch } = await chrome.storage.local.get("autoSwitch");
+  return autoSwitch !== false;
+}
+
+let autoRotating = false;
+
+// Counts main-frame navigation failures that point at the proxy/connection while
+// connected through a free proxy. 2 within 60s (and outside the 30s cooldown)
+// rotates to the next verified proxy for the SAME country via connectFree.
+// Failure timestamps and the cooldown live in storage so they survive service-worker
+// restarts. Errors that are not in PROXY_ERRORS (e.g. ERR_ABORTED, a page's own
+// error) and sub-frame errors never count. No new manifest permission is needed:
+// webRequest is already declared.
+async function handleNavError(details) {
+  if (!details || details.type !== "main_frame" || !PROXY_ERRORS.has(details.error)) return;
+  if (!(await getAutoSwitch())) return;
+  const state = await getState();
+  if (state.status !== "connected" || !state.proxy || !/^[A-Z]{2}$/.test(state.target || "")) return;
+  if (autoRotating) return;
+
+  const now = Date.now();
+  const { lastAutoRotateAt = 0 } = await chrome.storage.local.get("lastAutoRotateAt");
+  if (now - lastAutoRotateAt < AUTO_ROTATE_COOLDOWN_MS) return;
+
+  let { autoFailures = [] } = await chrome.storage.local.get("autoFailures");
+  autoFailures = autoFailures.filter((t) => now - t <= AUTO_ROTATE_WINDOW_MS);
+  autoFailures.push(now);
+  await chrome.storage.local.set({ autoFailures });
+  if (autoFailures.length < AUTO_ROTATE_THRESHOLD) return;
+
+  await chrome.storage.local.set({ autoFailures: [], lastAutoRotateAt: now });
+  const fresh = await getState();
+  if (fresh.status !== "connected" || fresh.target !== state.target) return;
+  autoRotating = true;
+  try {
+    await connectFree(fresh.target, fresh.tried || [], true);
+  } catch {
+    // connectFree already records its own errors in state; nothing to add here.
+  } finally {
+    autoRotating = false;
+  }
+}
+
+if (chrome.webRequest.onErrorOccurred) {
+  chrome.webRequest.onErrorOccurred.addListener((details) => {
+    handleNavError(details).catch(() => {});
+  });
 }
 
 chrome.webRequest.onAuthRequired.addListener(
@@ -343,7 +411,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             getState()
           ]);
           const { poolFetchedAt } = await chrome.storage.local.get("poolFetchedAt");
-          sendResponse({ ok: true, countries, servers, state, poolFetchedAt: poolFetchedAt || null });
+          const autoSwitch = await getAutoSwitch();
+          sendResponse({ ok: true, countries, servers, state, poolFetchedAt: poolFetchedAt || null, autoSwitch });
           break;
         }
         case "REFRESH_POOL": {
@@ -370,6 +439,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         case "SAVE_SERVERS":
           await chrome.storage.local.set({ servers: message.servers });
+          sendResponse({ ok: true });
+          break;
+        case "GET_SETTINGS":
+          sendResponse({ ok: true, autoSwitch: await getAutoSwitch() });
+          break;
+        case "SAVE_SETTINGS":
+          await chrome.storage.local.set({ autoSwitch: message.autoSwitch !== false });
           sendResponse({ ok: true });
           break;
         case "GET_SERVERS": {

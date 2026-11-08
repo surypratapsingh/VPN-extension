@@ -6,6 +6,12 @@ Format per entry:
 - Alternatives rejected:
 - Consequences:
 
+## 2026-11-08 - Auto-rotate on proxy navigation failures (V1)
+- Decision: 2 main-frame failures in {ERR_PROXY_CONNECTION_FAILED, ERR_SOCKS_CONNECTION_FAILED, ERR_TIMED_OUT, ERR_CONNECTION_RESET, ERR_EMPTY_RESPONSE} within 60s while connected via a free proxy triggers the existing rotate (connectFree same country); max once per 30s; default-on options switch (`autoSwitch` in storage).
+- Context: a proxy can pass the Cloudflare trace check and still fail real pages (seen with a Russian proxy).
+- Alternatives rejected: Rotating on a single failure (page/CDN blips would thrash proxies); rotating to any country (would silently change geo); a new manifest permission (webRequest is already declared, none needed).
+- Consequences: Failure timestamps and cooldown are stored so they survive service-worker restarts; sub-frame errors and non-listed errors (ERR_ABORTED) never count.
+
 ## 2026-09-21 - Free public SOCKS5 proxies by default
 - Decision: Use the free ProxyScrape list as the default source; own VPS is an optional "Custom servers" path.
 - Context: User wants zero cost and no signup; the purpose is reading geo-restricted content, not privacy.

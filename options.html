@@ -78,6 +78,16 @@
     </thead>
     <tbody id="servers-body"></tbody>
   </table>
+  <div style="margin-top:20px; font-size:13px;">
+    <label style="display:flex; gap:8px; align-items:center; cursor:pointer;">
+      <input type="checkbox" id="auto-switch" checked style="width:auto;">
+      Auto-switch when pages fail
+    </label>
+    <p style="color:#9ca3af; font-size:12px; margin:6px 0 0;">
+      When connected through a free proxy, switch to another proxy in the same country
+      if two main-frame page loads fail through the proxy within a minute. On by default.
+    </p>
+  </div>
   <div id="toolbar">
     <button id="add-btn" class="secondary">Add server</button>
     <button id="save-btn">Save</button>

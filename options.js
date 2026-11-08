@@ -2,6 +2,7 @@ const tbody = document.getElementById("servers-body");
 const addBtn = document.getElementById("add-btn");
 const saveBtn = document.getElementById("save-btn");
 const savedMsg = document.getElementById("saved-msg");
+const autoSwitchEl = document.getElementById("auto-switch");
 
 let servers = [];
 
@@ -51,6 +52,7 @@ addBtn.addEventListener("click", () => {
 
 saveBtn.addEventListener("click", async () => {
   await chrome.runtime.sendMessage({ type: "SAVE_SERVERS", servers });
+  await chrome.runtime.sendMessage({ type: "SAVE_SETTINGS", autoSwitch: autoSwitchEl.checked });
   savedMsg.textContent = "Saved.";
   setTimeout(() => (savedMsg.textContent = ""), 2000);
 });
@@ -59,4 +61,6 @@ saveBtn.addEventListener("click", async () => {
   const res = await chrome.runtime.sendMessage({ type: "GET_SERVERS" });
   servers = res.servers;
   render();
+  const settings = await chrome.runtime.sendMessage({ type: "GET_SETTINGS" }).catch(() => null);
+  if (settings && typeof settings.autoSwitch === "boolean") autoSwitchEl.checked = settings.autoSwitch;
 })();

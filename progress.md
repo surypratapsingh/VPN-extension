@@ -1,6 +1,12 @@
 # Progress Log
 Newest entry first. Each entry: Done / In progress / Next / Blockers.
 
+## 2026-11-08 - V1 Auto-rotate when pages fail through the current proxy
+- Done: background.js counts main-frame webRequest onErrorOccurred failures in {ERR_PROXY_CONNECTION_FAILED, ERR_SOCKS_CONNECTION_FAILED, ERR_TIMED_OUT, ERR_CONNECTION_RESET, ERR_EMPTY_RESPONSE} while connected via a free proxy; 2 within 60s rotates via existing connectFree to the next verified proxy for the SAME country, at most once per 30s (timestamps/cooldown in storage, survive SW restarts). Popup shows state.note `Switched proxy: the last one failed` (popup already renders note). Options page checkbox `Auto-switch when pages fail` (GET_SETTINGS/SAVE_SETTINGS, default on, storage `autoSwitch`). No new manifest permission (webRequest already declared).
+- Tested: `node tests/background.test.js` - ALL PASSED, 44 checks (30 old + 14 new: threshold, inside/outside 60s window, 30s cooldown, same country, off switch, ERR_ABORTED/other/sub-frame excluded, settings round-trip). e2e-popup.js not run for V1 alone (live proxies; will run before final summary if Edge allows - Edge IS installed).
+- Could not do: none.
+- Unsure of: none.
+
 ## 2026-10-06 - Put on GitHub
 - Done: `git init` (branch `main`), first commit, `.gitattributes` keeps `*.sh` LF. Pushed to the private repo https://github.com/surypratapsingh/VPN-extension.
 - Next: user reloads the extension in chrome://extensions and tries it by hand. Possible: auto-rotate when pages fail through the proxy.
