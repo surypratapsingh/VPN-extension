@@ -490,8 +490,11 @@ async function handleNavError(details) {
 }
 
 if (chrome.webRequest.onErrorOccurred) {
+  // Chrome does not wait for listeners, so failures can arrive together. Run them one at a
+  // time so each read-modify-write of autoFailures sees the previous one (no lost counts).
+  let navQueue = Promise.resolve();
   const onNavError = (details) => {
-    handleNavError(details).catch(() => {});
+    navQueue = navQueue.then(() => handleNavError(details)).catch(() => {});
   };
   // Edge (Chromium 156, measured 2026-11-08) throws `TypeError: No matching signature`
   // for onErrorOccurred.addListener(callback) and needs the filter argument, while
