@@ -103,7 +103,7 @@ node tests/background.test.js
 ```
 
 Runs the real `background.js` against a simulated browser whose requests
-follow the PAC script the extension generates (54 checks, ~10s, no network), including
+follow the PAC script the extension generates (55 checks, ~10s, no network), including
 the auto-switch thresholds/window/cooldown and the extra-source merge, dedupe,
 failure and cache behavior.
 
