@@ -6,6 +6,10 @@ public SOCKS5 proxies so you can browse as if you were in another country.
 **Fully free — no signup, no credit card, no VPS.** It pulls a live list of
 public SOCKS5 proxies from ProxyScrape's free API, races several in your
 chosen country at once, and keeps the fastest one that verifiably exits there.
+If your country is thin in that list (fewer than 10 proxies), it also merges
+two more free, keyless lists — HProxy and the monosans/proxy-list project on
+GitHub — deduplicated by host:port. Their country labels are only hints: a
+proxy is still accepted solely on the measured exit-country check.
 
 ## Install
 
@@ -31,6 +35,14 @@ After updating the files, click the reload icon on the extension's card.
 4. **Try another proxy** re-races the rest. Your browsing stays on the
    current proxy while it does that, and if nothing better turns up you
    stay where you were.
+5. **Auto-switch (on by default).** While connected, if two main-frame page
+   loads fail through the current proxy (proxy/connection errors such as
+   `ERR_PROXY_CONNECTION_FAILED` or `ERR_TIMED_OUT`) within 60 seconds,
+   GeoSwitch automatically switches to the next verified proxy in the
+   **same country** and shows `Switched proxy: the last one failed` in the
+   popup. It auto-switches at most once every 30 seconds. To turn it off,
+   open the extension's **Options** page and uncheck
+   **Auto-switch when pages fail**, then Save.
 
 ## Measured results (2026-09-25)
 
@@ -91,7 +103,9 @@ node tests/background.test.js
 ```
 
 Runs the real `background.js` against a simulated browser whose requests
-follow the PAC script the extension generates (30 checks, ~7s, no network).
+follow the PAC script the extension generates (54 checks, ~10s, no network), including
+the auto-switch thresholds/window/cooldown and the extra-source merge, dedupe,
+failure and cache behavior.
 
 ```bash
 node tests/e2e-popup.js

@@ -1,6 +1,19 @@
 # Progress Log
 Newest entry first. Each entry: Done / In progress / Next / Blockers.
 
+## 2026-11-08 - V3 Docs + final summary
+- Done: README.md documents auto-switch (what it does, same-country, 60s/2-failure/30s rules, popup note, how to turn off via Options), the two extra sources (HProxy + monosans/proxy-list, <10 thin-country merge, labels-are-hints), updated test count (54 -> 55). Banking/logins/privacy warning kept, unchanged. plan.md: both next-improvement items ticked with test evidence. decisions.md: entries for V1 (thresholds, no new permission, Edge signature), V2 (sources + why, 3s cap, fallback order), and the Edge fix.
+- Tested: `node tests/background.test.js` ALL PASSED (55 checks); `node tests/e2e-popup.js` PASSED (Edge installed at default path; connect/rotate/refresh/disconnect, 0 JS errors).
+- Could not do: none.
+- Unsure of: none.
+
+## Final summary (2026-11-08)
+- V1 Done and committed (1fad008 + fix d30552d): auto-rotate on 2 main-frame proxy failures within 60s, same country, max once/30s, default-on Options switch, popup note, no new manifest permission. Tested: 55 simulated checks + live Edge E2E.
+- V2 Done and committed (f86c68b): HProxy + monosans extra sources for countries with <10 primary proxies, dedupe by host:port, fallback order, 3s-capped parallel fetch, 10-min cache, measured exit check still the only truth. Tested: simulated dedupe/fallback/failing/empty/hanging/cache/thick-skip/mislabeled cases.
+- V3 Done (this commit): README/plan/decisions/progress updated; banking/privacy warning intact.
+- Commits (local only, never pushed): 1fad008 V1, f86c68b V2, d30552d Edge fix, plus this V3 docs commit. site/ never staged. No secrets, no new dependencies, no analytics/remote logging, no old test edited or deleted (only added checks + harness support for new list fetches).
+- Blockers: none.
+
 ## 2026-11-08 - Fix: Edge onErrorOccurred registration (found by live E2E)
 - Done: Real headless Edge would not load the extension with V1's `chrome.webRequest.onErrorOccurred.addListener(handler)` - Edge (Chromium 156) throws `TypeError: No matching signature` at service-worker startup, killing the worker (bisected: access alone is fine, addListener(handler) throws, addListener(handler, {urls:["<all_urls>"]}) succeeds). Registration now tries the filter form first, falls back to the plain form, never throws. No manifest change.
 - Tested: `node tests/background.test.js` ALL PASSED (55 checks, incl. new filter check); `node tests/e2e-popup.js` PASSED (loaded, GB connect 2.7s, Try another 0.8s, Refresh, Disconnect, 0 JS errors).

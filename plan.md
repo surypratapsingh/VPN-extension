@@ -24,4 +24,5 @@ A free Chrome/Edge MV3 extension that routes the browser through public SOCKS5 p
 - [x] Checker bug fixed (2026-09-25): per-slot third-party checkers misjudged proxies; all slots now use Cloudflare trace
 - [x] Tests: simulated-browser suite (30 checks) + real-Edge E2E for connect and popup
 - [x] Put the folder under git (private repo: https://github.com/surypratapsingh/VPN-extension)
-- [ ] Decide next improvements: auto-rotate when pages fail through the current proxy (seen with a Russian proxy); more proxy sources for thin countries
+- [x] Auto-rotate when pages fail through the current proxy (2026-11-08, V1): 2 main-frame proxy/connection failures within 60s rotate to the next verified proxy in the same country, max once per 30s, default-on options switch. Proved by tests/background.test.js (threshold, window, cooldown, exclusions).
+- [x] More proxy sources for thin countries (2026-11-08, V2): HProxy + monosans/proxy-list merged when the primary list has <10 proxies for the requested country (dedupe by host:port, 3s-capped parallel fetch, 10-min cache); measured exit-country check remains the only acceptance test. Proved by tests/background.test.js (merge, dedupe, fallback order, failing/empty/hanging sources, cache).
