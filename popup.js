@@ -135,7 +135,8 @@ rotateBtn.addEventListener("click", async () => {
   await chrome.runtime.sendMessage({ type: "CONNECT_FREE", countryCode: state.target, skip });
 });
 
-refreshLink.addEventListener("click", async () => {
+refreshLink.addEventListener("click", async (e) => {
+  e.preventDefault(); // links are href="#": keep the popup where it is
   poolInfoEl.textContent = "Refreshing…";
   const res = await chrome.runtime.sendMessage({ type: "REFRESH_POOL" });
   if (res.ok) {
@@ -147,7 +148,10 @@ refreshLink.addEventListener("click", async () => {
   }
 });
 
-optionsLink.addEventListener("click", () => chrome.runtime.openOptionsPage());
+optionsLink.addEventListener("click", (e) => {
+  e.preventDefault();
+  chrome.runtime.openOptionsPage();
+});
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
