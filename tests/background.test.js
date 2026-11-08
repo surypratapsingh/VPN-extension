@@ -396,6 +396,56 @@ function check(name, cond, detail = "") {
   const r24c = await e24c.connect({ type: "CONNECT_CUSTOM", serverId: "l" });
   check("very long label: short message, no crash", r24c.final.status === "disconnected" && (r24c.final.lastError || "").length < 80, `${(r24c.final.lastError || "").length} chars`);
 
+  // --- 25. Rotation/racing edge cases: empty list, all dead, one alive, all hanging, failing current proxy
+  const e25a = env({ pool: [] });
+  const r25a = await e25a.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  check("empty list: disconnects with a clear message", r25a.final.status === "disconnected" && /proxy list empty/.test(r25a.final.lastError || ""), r25a.final.lastError);
+  check("empty list: never applies a proxy", e25a.log.applied.every((a) => a === "CLEARED") && e25a.log.pacs.length === 0);
+
+  const D25 = { "10.8.0.1:1080": { dead: true, ms: 30 }, "10.8.0.2:1080": { dead: true, ms: 40 }, "10.8.0.3:1080": { dead: true, ms: 50 } };
+  const e25b = env({ proxies: D25, pool: Object.keys(D25).map((k, i) => listing(k.split(":")[0], 1080, "DE", 99 - i)) });
+  const r25b = await e25b.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  check("all dead: disconnects and says they didn't respond", r25b.final.status === "disconnected" && /3 didn't respond/.test(r25b.final.lastError || ""), r25b.final.lastError);
+  check("all dead: never left on an untested proxy", e25b.log.applied.at(-1) === "CLEARED");
+
+  const O25 = { "10.8.1.1:1080": { dead: true, ms: 30 }, "10.8.1.2:1080": { ms: 200, cc: "DE" }, "10.8.1.3:1080": { dead: true, ms: 40 } };
+  const e25c = env({ proxies: O25, pool: Object.keys(O25).map((k, i) => listing(k.split(":")[0], 1080, "DE", 99 - i)) });
+  const r25c = await e25c.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  check("one alive of three: connects to the survivor", r25c.final.status === "connected" && r25c.final.proxy.host === "10.8.1.2", r25c.final.proxy?.host);
+
+  const H25 = { "10.8.2.1:1080": { hang: true }, "10.8.2.2:1080": { hang: true } };
+  const e25d = env({ proxies: H25, pool: Object.keys(H25).map((k, i) => listing(k.split(":")[0], 1080, "DE", 99 - i)) });
+  const r25d = await e25d.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  check("simultaneous timeouts: gives up at the probe timeout, not hung", r25d.final.status === "disconnected" && r25d.ms > 4800 && r25d.ms < 6500, `${Math.round(r25d.ms)}ms`);
+
+  // Current proxy keeps failing and no alternative exists: stay on it, don't re-apply repeatedly
+  const F25 = { "10.8.3.1:1080": { ms: 100, cc: "DE" } };
+  const e25e = env({ proxies: F25, pool: [listing("10.8.3.1", 1080, "DE", 99)] });
+  const r25e = await e25e.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  check("failing current proxy: setup connects", r25e.final.status === "connected" && r25e.final.proxy.host === "10.8.3.1");
+  const n25e = e25e.log.states.length;
+  // Chrome does not wait for the listener, so the two failures arrive together.
+  e25e.fireError({ type: "main_frame", error: "net::ERR_TIMED_OUT", url: "https://example.com/" });
+  e25e.fireError({ type: "main_frame", error: "net::ERR_TIMED_OUT", url: "https://example.com/" });
+  const r25e2 = await e25e.settleAuto(n25e);
+  check("failing current proxy, no alternative: stays connected to it", r25e2.status === "connected" && r25e2.proxy.host === "10.8.3.1", r25e2.note || r25e2.lastError);
+  check("failing current proxy, no alternative: explains and re-applies only the same proxy", /Stayed on the current proxy/.test(r25e2.note || "") && e25e.log.applied.at(-1) === "10.8.3.1:1080");
+  const n25e2 = e25e.log.states.length;
+  e25e.fireError({ type: "main_frame", error: "net::ERR_TIMED_OUT", url: "https://example.com/" });
+  e25e.fireError({ type: "main_frame", error: "net::ERR_TIMED_OUT", url: "https://example.com/" });
+  await new Promise((r) => setTimeout(r, 150));
+  check("failing current proxy: cooldown blocks an immediate retry", e25e.log.states.length === n25e2);
+
+  // Two failures that arrive at the same moment must still count as two and rotate once.
+  const C25 = { "10.8.4.1:1080": { ms: 100, cc: "DE" }, "10.8.4.2:1080": { ms: 150, cc: "DE" } };
+  const e25f = env({ proxies: C25, pool: Object.keys(C25).map((k, i) => listing(k.split(":")[0], 1080, "DE", 99 - i)) });
+  await e25f.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  const n25f = e25f.log.states.length;
+  e25f.fireError({ type: "main_frame", error: "net::ERR_PROXY_CONNECTION_FAILED", url: "https://example.com/" });
+  e25f.fireError({ type: "main_frame", error: "net::ERR_PROXY_CONNECTION_FAILED", url: "https://example.com/" });
+  const r25f = await e25f.settleAuto(n25f);
+  check("simultaneous failures: two at once rotate to the next proxy", r25f.status === "connected" && r25f.proxy.host === "10.8.4.2", r25f.proxy?.host);
+
   console.log(failures ? `\n${failures} FAILED` : "\nALL PASSED");
   process.exit(failures ? 1 : 0);
 })();
