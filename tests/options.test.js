@@ -76,6 +76,7 @@ vm.runInContext(SRC, ctx);
   assert.equal(log.created.some((e) => e.tagName === "IMG"), false, "no <img> element was created");
 
   assert.equal(row.children[6].children[0].textContent, "Remove");
+  assert.equal(row.children[6].children[0].attrs["aria-label"], "Remove server 1", "Remove buttons have distinct names");
   console.log("PASS stored label with HTML stays plain text in its input");
   console.log("ALL PASSED");
 })().catch((err) => {

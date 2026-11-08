@@ -34,6 +34,8 @@ function rowFor(s, i) {
   remove.className = "secondary";
   remove.dataset.remove = String(i);
   remove.textContent = "Remove";
+  // Every row has a Remove button; without this, screen readers hear the same name over and over.
+  remove.setAttribute("aria-label", `Remove server ${i + 1}`);
   const td = document.createElement("td");
   td.appendChild(remove);
   tr.appendChild(td);
