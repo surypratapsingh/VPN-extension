@@ -47,6 +47,107 @@ const PROXY_ERRORS = new Set([
 ]);
 const AUTO_ROTATE_NOTE = "Switched proxy: the last one failed";
 
+// Extra sources (V2): keyless, signup-free SOCKS5 lists that carry a country label.
+// They are only consulted when the primary ProxyScrape list has fewer than 10 proxies
+// for the requested country (`thin` countries). Their country labels are hints only:
+// a proxy is still accepted solely on the measured Cloudflare exit-country check.
+// Each extra fetch is capped at 3s and run in parallel via allSettled, so a failing
+// or hanging source can neither break nor stall Connect; the primary pool is used alone.
+const THIN_COUNTRY_THRESHOLD = 10;
+const EXTRA_TIMEOUT_MS = 3000;
+
+function makeProxy(host, port, country, countryName, uptime) {
+  const p = Number(port);
+  const cc = String(country || "").toUpperCase();
+  // Same PAC-script safety rule as the primary list: plain IPv4 + integer port + 2-letter code.
+  if (!IPV4.test(host || "") || !Number.isInteger(p) || p < 1 || p > 65535 || !/^[A-Z]{2}$/.test(cc)) return null;
+  return { host, port: p, country: cc, countryName: countryName || cc, uptime: typeof uptime === "number" ? uptime : 0 };
+}
+
+function parseHProxyList(data) {
+  if (!Array.isArray(data)) return [];
+  const out = [];
+  for (const p of data) {
+    const entry = makeProxy(p.ip, p.port, p.country_code, null, p.uptime_pct ?? p.uptime_24h);
+    if (entry) out.push(entry);
+  }
+  return out.sort((a, b) => b.uptime - a.uptime);
+}
+
+function parseMonosansList(data) {
+  if (!Array.isArray(data)) return [];
+  const out = [];
+  for (const p of data) {
+    if (p.protocol !== "socks5" || p.username || p.password) continue;
+    const cc = p.geolocation?.country?.iso_code;
+    const name = p.geolocation?.country?.names?.en;
+    // monosans reports a response `timeout` (seconds, lower is faster), not uptime;
+    // derive a comparable score so faster entries sort first within this source.
+    const uptime = typeof p.timeout === "number" ? Math.max(0, Math.round(100 - p.timeout * 50)) : 0;
+    const entry = makeProxy(p.host, p.port, cc, name, uptime);
+    if (entry) out.push(entry);
+  }
+  return out.sort((a, b) => b.uptime - a.uptime);
+}
+
+const EXTRA_SOURCES = [
+  { url: "https://hproxy.com/api/proxy-list?format=json&protocol=socks5", parse: parseHProxyList },
+  { url: "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies.json", parse: parseMonosansList }
+];
+
+async function fetchExtraSource(source) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), EXTRA_TIMEOUT_MS);
+  try {
+    const res = await fetch(source.url, { cache: "no-store", signal: controller.signal });
+    if (!res.ok) throw new Error(`extra source HTTP ${res.status}`);
+    return source.parse(await res.json());
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchExtraPool() {
+  const results = await Promise.allSettled(EXTRA_SOURCES.map((s) => fetchExtraSource(s)));
+  const extras = [];
+  for (const r of results) if (r.status === "fulfilled") extras.push(...r.value); // source order = fallback order
+  return extras;
+}
+
+// Primary entries first (fallback order), then extras, deduplicated by host:port.
+function mergePools(primary, extras) {
+  const seen = new Set(primary.map((p) => `${p.host}:${p.port}`));
+  const merged = [...primary];
+  for (const p of extras) {
+    const key = `${p.host}:${p.port}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(p);
+  }
+  return merged;
+}
+
+// Existing cache rules are untouched for the primary pool. The extra pool gets the
+// same 10-minute TTL and is stored separately; a fresh cache means no network at all
+// on Connect, and a failed refresh falls back to the stale cache or the primary pool.
+async function getPoolForCountry(primaryPool, countryCode) {
+  const primaryCount = primaryPool.filter((p) => p.country === countryCode).length;
+  if (primaryCount >= THIN_COUNTRY_THRESHOLD) return primaryPool;
+  const { extraPool, extraPoolFetchedAt } = await chrome.storage.local.get(["extraPool", "extraPoolFetchedAt"]);
+  if (Array.isArray(extraPool) && extraPool.length && extraPoolFetchedAt && Date.now() - extraPoolFetchedAt <= LIST_TTL_MS) {
+    return mergePools(primaryPool, extraPool);
+  }
+  let extras = [];
+  try {
+    extras = await fetchExtraPool();
+  } catch {
+    extras = [];
+  }
+  if (extras.length) await chrome.storage.local.set({ extraPool: extras, extraPoolFetchedAt: Date.now() });
+  else if (Array.isArray(extraPool) && extraPool.length) extras = extraPool;
+  return mergePools(primaryPool, extras);
+}
+
 const LIST_TTL_MS = 10 * 60 * 1000;
 // Measured 2026-09-25: 4s dropped a country that 5s reached; beyond 5s only the slowest
 // ~10% of live proxies answer, and those make browsing slow anyway.
@@ -212,7 +313,8 @@ async function connectFree(countryCode, skip = [], auto = false) {
   const previous = before.status === "connected" && before.proxy ? before : null;
   const fallback = previous ? `SOCKS5 ${proxyKey(previous.proxy)}` : "DIRECT";
 
-  const pool = await fetchPool();
+  const primaryPool = await fetchPool();
+  const pool = await getPoolForCountry(primaryPool, countryCode);
   const candidates = pool
     .filter((p) => p.country === countryCode && !skip.includes(proxyKey(p)))
     .slice(0, MAX_CANDIDATES);

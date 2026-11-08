@@ -1,6 +1,12 @@
 # Progress Log
 Newest entry first. Each entry: Done / In progress / Next / Blockers.
 
+## 2026-11-08 - V2 More proxy sources for thin countries
+- Done: Two extra keyless/signup-free sources: HProxy (`https://hproxy.com/api/proxy-list?format=json&protocol=socks5`, ip/port/country_code/uptime_pct) and monosans/proxy-list (`proxies.json` on GitHub, socks5 only, geolocation country + response timeout). When the primary ProxyScrape pool has <10 proxies for the requested country, extras are fetched in parallel (allSettled, 3s timeout each), merged after the primary pool in source order (fallback order), deduplicated by host:port, and cached 10 min (same TTL as primary, stored as extraPool). A failing/hanging/empty source falls back to the stale extra cache or the primary pool alone. Exit country is still only the measured Cloudflare check; extra labels are hints only (same IPv4/port/country-code validation as primary for PAC safety).
+- Tested: `node tests/background.test.js` - ALL PASSED, 54 checks (44 prior + 10 new: thin merge, fallback order, dedupe, cache store/use with no fetch, failing source, empty sources, hang timeout ~3.1s, thick-country skip, mislabeled extra rejected).
+- Could not do: none.
+- Unsure of: none (live format of both sources verified 2026-11-08 via their public endpoints; no account/signup used).
+
 ## 2026-11-08 - V1 Auto-rotate when pages fail through the current proxy
 - Done: background.js counts main-frame webRequest onErrorOccurred failures in {ERR_PROXY_CONNECTION_FAILED, ERR_SOCKS_CONNECTION_FAILED, ERR_TIMED_OUT, ERR_CONNECTION_RESET, ERR_EMPTY_RESPONSE} while connected via a free proxy; 2 within 60s rotates via existing connectFree to the next verified proxy for the SAME country, at most once per 30s (timestamps/cooldown in storage, survive SW restarts). Popup shows state.note `Switched proxy: the last one failed` (popup already renders note). Options page checkbox `Auto-switch when pages fail` (GET_SETTINGS/SAVE_SETTINGS, default on, storage `autoSwitch`). No new manifest permission (webRequest already declared).
 - Tested: `node tests/background.test.js` - ALL PASSED, 44 checks (30 old + 14 new: threshold, inside/outside 60s window, 30s cooldown, same country, off switch, ERR_ABORTED/other/sub-frame excluded, settings round-trip). e2e-popup.js not run for V1 alone (live proxies; will run before final summary if Edge allows - Edge IS installed).

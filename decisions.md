@@ -6,6 +6,12 @@ Format per entry:
 - Alternatives rejected:
 - Consequences:
 
+## 2026-11-08 - Extra proxy sources for thin countries (V2)
+- Decision: Add HProxy (hproxy.com keyless JSON API, socks5 + country_code) and monosans/proxy-list (GitHub proxies.json, socks5 + GeoNames country) as fallback sources. Consulted only when the primary pool has <10 proxies for the requested country; merged after the primary pool, deduplicated by host:port, cached 10 minutes; each fetch capped at 3s and run via allSettled.
+- Context: ProxyScrape alone leaves some countries too thin (and heavily mislabeled, e.g. NL). Both extras need no key/signup and carry a country label so candidates can be matched to the requested country before the measured check.
+- Alternatives rejected: Plain ip:port text lists (TheSpeedX, monosans socks5.txt) - no country label, so they cannot be candidates for a specific country; proxmint/databay APIs (newer/less established, databay API needs sign-in for copy/download); merging extras unconditionally (would change thick-country behavior and waste the primary's ordering).
+- Consequences: Thin-country Connect can wait up to ~3s for extras (parallel, capped); a failing source never breaks Connect. Country labels from extras are never trusted - the Cloudflare measured exit check remains the only acceptance test, so a mislabeled extra is rejected and named, exactly like a primary entry.
+
 ## 2026-11-08 - Auto-rotate on proxy navigation failures (V1)
 - Decision: 2 main-frame failures in {ERR_PROXY_CONNECTION_FAILED, ERR_SOCKS_CONNECTION_FAILED, ERR_TIMED_OUT, ERR_CONNECTION_RESET, ERR_EMPTY_RESPONSE} within 60s while connected via a free proxy triggers the existing rotate (connectFree same country); max once per 30s; default-on options switch (`autoSwitch` in storage).
 - Context: a proxy can pass the Cloudflare trace check and still fail real pages (seen with a Russian proxy).

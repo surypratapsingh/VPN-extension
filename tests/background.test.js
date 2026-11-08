@@ -19,10 +19,10 @@ loc=${cc}
 tls=TLSv1.3
 `;
 
-function env({ proxies = {}, pool = [], listMs = 0, listFails = false, seed = {} }) {
+function env({ proxies = {}, pool = [], listMs = 0, listFails = false, seed = {}, extraSources = {} }) {
   const store = structuredClone(seed);
   let config = null;
-  const log = { pacs: [], applied: [], fetches: [], states: [] };
+  const log = { pacs: [], applied: [], fetches: [], states: [], listFetches: [] };
   let onMessage = null;
   let onErrorOccurred = null;
 
@@ -65,6 +65,19 @@ function env({ proxies = {}, pool = [], listMs = 0, listFails = false, seed = {}
 
   function fetch(url, opts = {}) {
     const host = new URL(url).hostname;
+    if (host === "hproxy.com" || host === "raw.githubusercontent.com") {
+      // V2 extra sources: stubbed per-test. Default (undefined) = fetch fails.
+      log.listFetches.push(host);
+      const spec = extraSources[host === "hproxy.com" ? "hproxy" : "monosans"];
+      return new Promise((resolve, reject) => {
+        if (!spec || spec.fail) return reject(new TypeError("Failed to fetch"));
+        if (spec.hang) {
+          if (opts.signal) opts.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+          return;
+        }
+        setTimeout(() => resolve({ ok: true, json: async () => spec.rows || [] }), spec.ms || 0);
+      });
+    }
     if (host === "api.proxyscrape.com") {
       return new Promise((resolve, reject) =>
         setTimeout(() => (listFails ? reject(new TypeError("Failed to fetch")) : resolve({ ok: true, json: async () => ({ proxies: pool }) })), listMs)
@@ -299,6 +312,77 @@ function check(name, cond, detail = "") {
   await e16.send({ type: "SAVE_SETTINGS", autoSwitch: false });
   const s17b = await e16.send({ type: "GET_SETTINGS" });
   check("V1 settings can be turned off and saved", s17b.autoSwitch === false);
+
+  // --- 18. V2 thin country merges extras, dedupes by host:port, fallback order (primary first)
+  const hpRow = (ip, port, cc, uptime) => ({ ip, port, country_code: cc, uptime_pct: uptime });
+  const monoRow = (host, port, cc, name, timeout) => ({ protocol: "socks5", username: null, password: null, host, port, timeout, geolocation: { country: { iso_code: cc, names: { en: name } } } });
+  const C = { "10.6.0.1:1080": { dead: true, ms: 40 }, "10.6.0.2:1080": { ms: 120, cc: "DE" }, "10.6.0.3:1080": { ms: 300, cc: "DE" } };
+  const e18 = env({
+    proxies: C,
+    pool: [listing("10.6.0.1", 1080, "DE", 99)],
+    extraSources: {
+      hproxy: { rows: [hpRow("10.6.0.1", 1080, "DE", 90), hpRow("10.6.0.2", 1080, "DE", 80)] }, // first row duplicates the primary host:port
+      monosans: { rows: [monoRow("10.6.0.3", 1080, "DE", "Germany", 0.2)] }
+    }
+  });
+  const r18 = await e18.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  check("V2 thin country connects via an extra source", r18.final.status === "connected" && r18.final.proxy.host === "10.6.0.2", r18.final.proxy?.host);
+  check("V2 both extra sources consulted, in fallback order", e18.log.listFetches.join(",") === "hproxy.com,raw.githubusercontent.com", e18.log.listFetches.join(","));
+  check("V2 extras deduplicated by host:port (no duplicate tried keys)", new Set(r18.final.tried).size === r18.final.tried.length, r18.final.tried.join(" "));
+  check("V2 extra pool cached for next connect", Array.isArray(e18.store.extraPool) && e18.store.extraPool.length === 3, `cached=${e18.store.extraPool?.length}`);
+
+  // --- 19. V2 failing first source + empty second source do not break Connect
+  const e19 = env({
+    proxies: C,
+    pool: [listing("10.6.0.1", 1080, "DE", 99)],
+    extraSources: { hproxy: { fail: true }, monosans: { rows: [monoRow("10.6.0.3", 1080, "DE", "Germany", 0.2)] } }
+  });
+  const r19 = await e19.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  check("V2 failing source does not break connect (monosans wins)", r19.final.status === "connected" && r19.final.proxy.host === "10.6.0.3", r19.final.proxy?.host);
+
+  const e19b = env({
+    proxies: { "10.6.0.2:1080": { ms: 100, cc: "DE" } },
+    pool: [listing("10.6.0.2", 1080, "DE", 99)],
+    extraSources: { hproxy: { rows: [] }, monosans: { rows: [] } }
+  });
+  const r19b = await e19b.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  check("V2 empty extra sources fall back to primary", r19b.final.status === "connected" && r19b.final.proxy.host === "10.6.0.2", r19b.final.proxy?.host);
+
+  // --- 20. V2 hanging extra sources are capped by the 3s timeout and do not break Connect
+  const e20 = env({
+    proxies: { "10.6.0.2:1080": { ms: 100, cc: "DE" } },
+    pool: [listing("10.6.0.2", 1080, "DE", 99)],
+    extraSources: { hproxy: { hang: true }, monosans: { hang: true } }
+  });
+  const r20 = await e20.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  check("V2 hanging extra sources time out and primary still connects", r20.final.status === "connected" && r20.ms >= 2900 && r20.ms < 6000, `${Math.round(r20.ms)}ms`);
+
+  // --- 21. V2 fresh extra-pool cache is used with no network fetch
+  const e21 = env({
+    proxies: C,
+    pool: [listing("10.6.0.1", 1080, "DE", 99)],
+    seed: { extraPool: [{ host: "10.6.0.2", port: 1080, country: "DE", countryName: "DE", uptime: 80 }], extraPoolFetchedAt: Date.now() },
+    extraSources: { hproxy: { hang: true }, monosans: { hang: true } }
+  });
+  const r21 = await e21.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  check("V2 fresh cache used (no extra fetch) and connects", r21.final.status === "connected" && r21.final.proxy.host === "10.6.0.2" && e21.log.listFetches.length === 0, `fetches=${e21.log.listFetches.length}`);
+
+  // --- 22. V2 thick country (>=10 primary) never consults extra sources
+  const D = {};
+  const poolD = [];
+  for (let i = 1; i <= 10; i++) { D[`10.7.0.${i}:1080`] = { ms: 50 + i * 10, cc: "DE" }; poolD.push(listing(`10.7.0.${i}`, 1080, "DE", 100 - i)); }
+  const e22 = env({ proxies: D, pool: poolD, extraSources: { hproxy: { rows: [hpRow("10.6.0.2", 1080, "DE", 99)] }, monosans: { rows: [] } } });
+  const r22 = await e22.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  check("V2 thick country skips extra sources", r22.final.status === "connected" && e22.log.listFetches.length === 0, `fetches=${e22.log.listFetches.length}`);
+
+  // --- 23. V2 extra labels are never trusted: a mislabeled extra is rejected by the measured check
+  const e23 = env({
+    proxies: { "10.6.0.1:1080": { dead: true, ms: 40 }, "10.6.0.2:1080": { ms: 100, cc: "CA" } },
+    pool: [listing("10.6.0.1", 1080, "DE", 99)],
+    extraSources: { hproxy: { rows: [hpRow("10.6.0.2", 1080, "DE", 90)] }, monosans: { rows: [] } }
+  });
+  const r23 = await e23.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  check("V2 mislabeled extra rejected, not silently used", r23.final.status === "disconnected" && /wrong country \(CA\)/.test(r23.final.lastError), r23.final.lastError);
 
   console.log(failures ? `\n${failures} FAILED` : "\nALL PASSED");
   process.exit(failures ? 1 : 0);
