@@ -396,6 +396,27 @@ function check(name, cond, detail = "") {
   const r24c = await e24c.connect({ type: "CONNECT_CUSTOM", serverId: "l" });
   check("very long label: short message, no crash", r24c.final.status === "disconnected" && (r24c.final.lastError || "").length < 80, `${(r24c.final.lastError || "").length} chars`);
 
+  // --- 25. Disconnect pressed while an automatic rotation is still fetching the list must stick
+  const xs25 = { hproxy: { rows: [] }, monosans: { rows: [] } };
+  const G25 = { "10.9.0.1:1080": { ms: 100, cc: "DE" }, "10.9.0.2:1080": { ms: 120, cc: "DE" } };
+  const e25 = env({ proxies: G25, pool: Object.keys(G25).map((k, i) => listing(k.split(":")[0], 1080, "DE", 99 - i)), extraSources: xs25 });
+  const r25 = await e25.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  check("disconnect race: setup connects", r25.final.status === "connected", r25.final.status);
+  xs25.hproxy = { rows: [], ms: 600 };
+  xs25.monosans = { rows: [], ms: 600 };
+  // Spaced apart so both failures count; simultaneous failures are a separate concern.
+  e25.fireError({ type: "main_frame", error: "net::ERR_TIMED_OUT", url: "https://example.com/" });
+  await new Promise((r) => setTimeout(r, 50));
+  e25.fireError({ type: "main_frame", error: "net::ERR_TIMED_OUT", url: "https://example.com/" });
+  await new Promise((r) => setTimeout(r, 150)); // rotation is now waiting on the slow list
+  await e25.send({ type: "DISCONNECT" });
+  const applied25 = e25.log.applied.length, pacs25 = e25.log.pacs.length;
+  await new Promise((r) => setTimeout(r, 1500));
+  check("disconnect during rotation sticks", e25.store.state.status === "disconnected", e25.store.state.status);
+  check("disconnect during rotation: no proxy applied afterwards", e25.log.applied.length === applied25 && e25.log.pacs.length === pacs25, `applied+${e25.log.applied.length - applied25} pac+${e25.log.pacs.length - pacs25}`);
+  const r25b = await e25.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  check("a new connect after disconnect still works", r25b.final.status === "connected", r25b.final.status);
+
   console.log(failures ? `\n${failures} FAILED` : "\nALL PASSED");
   process.exit(failures ? 1 : 0);
 })();
