@@ -309,6 +309,7 @@ async function raceBatch(batch, countryCode, fallback) {
 const proxyKey = (p) => `${p.host}:${p.port}`;
 
 async function connectFree(countryCode, skip = [], auto = false) {
+  if (!countryCode) throw new Error("Pick a country first.");
   const before = await getState();
   const previous = before.status === "connected" && before.proxy ? before : null;
   const fallback = previous ? `SOCKS5 ${proxyKey(previous.proxy)}` : "DIRECT";
@@ -418,7 +419,7 @@ async function connectCustom(serverId) {
     });
   } else {
     await clearProxy();
-    await setState({ status: "disconnected", target: serverId, note: null, lastError: `${server.label} did not respond.` });
+    await setState({ status: "disconnected", target: serverId, note: null, lastError: `${String(server.label || "Server").slice(0, 40)} did not respond.` });
   }
 }
 

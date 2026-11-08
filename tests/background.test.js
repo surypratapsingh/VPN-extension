@@ -385,6 +385,17 @@ function check(name, cond, detail = "") {
   const r23 = await e23.connect({ type: "CONNECT_FREE", countryCode: "DE" });
   check("V2 mislabeled extra rejected, not silently used", r23.final.status === "disconnected" && /wrong country \(CA\)/.test(r23.final.lastError), r23.final.lastError);
 
+  // --- 24. Input edge cases: empty country, empty host, very long label. Each settles with a short message.
+  const e24a = env({ pool: [listing("10.7.0.1", 1080, "DE", 99)] });
+  const r24a = await e24a.connect({ type: "CONNECT_FREE", countryCode: "" });
+  check("empty country code: asks for a country", r24a.final.status === "disconnected" && /Pick a country/.test(r24a.final.lastError || ""), r24a.final.lastError);
+  const e24b = env({ seed: { servers: [{ id: "h", label: "No host", country: "DE", host: "", port: 1080 }] } });
+  const r24b = await e24b.connect({ type: "CONNECT_CUSTOM", serverId: "h" });
+  check("empty host: server is not used, message shown", r24b.final.status === "disconnected" && /not found/.test(r24b.final.lastError || ""), r24b.final.lastError);
+  const e24c = env({ proxies: { "10.7.1.1:1080": { dead: true, ms: 30 } }, seed: { servers: [{ id: "l", label: "L".repeat(5000), country: "DE", host: "10.7.1.1", port: 1080 }] } });
+  const r24c = await e24c.connect({ type: "CONNECT_CUSTOM", serverId: "l" });
+  check("very long label: short message, no crash", r24c.final.status === "disconnected" && (r24c.final.lastError || "").length < 80, `${(r24c.final.lastError || "").length} chars`);
+
   console.log(failures ? `\n${failures} FAILED` : "\nALL PASSED");
   process.exit(failures ? 1 : 0);
 })();
