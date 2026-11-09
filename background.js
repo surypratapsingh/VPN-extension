@@ -402,6 +402,12 @@ async function connectCustom(serverId) {
   const servers = await getCustomServers();
   const server = servers.find((s) => s.id === serverId);
   if (!server) throw new Error("Server not found");
+  // Servers saved before the Options check existed can hold a bad port; say so instead of "did not respond".
+  const port = Number(server.port);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    await setState({ status: "disconnected", target: serverId, note: null, lastError: `${String(server.label || "Server").slice(0, 40)} has an invalid port. Fix it in Options.` });
+    return;
+  }
 
   await setState({ status: "connecting", target: serverId, racing: 1, round: 1, rounds: 1, note: null, lastError: null });
   await applyProxy(server.host, server.port);
