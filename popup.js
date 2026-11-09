@@ -61,7 +61,8 @@ function renderState() {
   const connected = state.status === "connected";
 
   selectEl.disabled = busy || connected;
-  connectBtn.disabled = busy || !selectEl.options.length;
+  // The picker always has a placeholder option, so check the lists themselves.
+  connectBtn.disabled = busy || !(countries.length || customServers.length);
   connectBtn.textContent = connected ? "Disconnect" : busy ? "Connecting…" : "Connect";
   connectBtn.classList.toggle("danger", connected);
   rotateBtn.hidden = !connected;
