@@ -396,6 +396,18 @@ function check(name, cond, detail = "") {
   const r24c = await e24c.connect({ type: "CONNECT_CUSTOM", serverId: "l" });
   check("very long label: short message, no crash", r24c.final.status === "disconnected" && (r24c.final.lastError || "").length < 80, `${(r24c.final.lastError || "").length} chars`);
 
+  // --- 25. Proxy source health: a proxy that fails 3 probes is no longer raced
+  const Z = { "10.8.0.1:1080": { dead: true, ms: 40 }, "10.8.0.2:1080": { ms: 100, cc: "DE" } };
+  const poolZ = [listing("10.8.0.1", 1080, "DE", 99), listing("10.8.0.2", 1080, "DE", 98)];
+  const e25 = env({ proxies: Z, pool: poolZ });
+  for (let i = 0; i < 3; i++) await e25.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  check("dead proxy counted after 3 failed probes", e25.store.proxyFailures?.["10.8.0.1:1080"] === 3, JSON.stringify(e25.store.proxyFailures));
+  await e25.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  const raced = e25.log.states.filter((s) => s.status === "connecting").map((s) => s.racing);
+  check("dead proxy dropped from the pool after 3 failures", raced.at(-1) === 1, JSON.stringify(raced));
+  await e25.send({ type: "REFRESH_POOL" });
+  check("Refresh list clears the failure counts", JSON.stringify(e25.store.proxyFailures) === "{}", JSON.stringify(e25.store.proxyFailures));
+
   console.log(failures ? `\n${failures} FAILED` : "\nALL PASSED");
   process.exit(failures ? 1 : 0);
 })();
