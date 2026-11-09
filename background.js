@@ -308,14 +308,21 @@ async function raceBatch(batch, countryCode, fallback) {
 
 const proxyKey = (p) => `${p.host}:${p.port}`;
 
+// Bumped by every free connect and by Disconnect. A connectFree that sees a different value
+// has been superseded (or the user disconnected) and must not touch the proxy or the state.
+let connectSeq = 0;
+
 async function connectFree(countryCode, skip = [], auto = false) {
   if (!countryCode) throw new Error("Pick a country first.");
+  const seq = ++connectSeq;
+  const stale = () => seq !== connectSeq;
   const before = await getState();
   const previous = before.status === "connected" && before.proxy ? before : null;
   const fallback = previous ? `SOCKS5 ${proxyKey(previous.proxy)}` : "DIRECT";
 
   const primaryPool = await fetchPool();
   const pool = await getPoolForCountry(primaryPool, countryCode);
+  if (stale()) return;
   const candidates = pool
     .filter((p) => p.country === countryCode && !skip.includes(proxyKey(p)))
     .slice(0, MAX_CANDIDATES);
@@ -339,6 +346,7 @@ async function connectFree(countryCode, skip = [], auto = false) {
     });
 
     const result = await raceBatch(batches[round], countryCode, fallback);
+    if (stale()) return;
     dead += result.dead.length;
     mismatched.push(...result.mismatched.map((m) => m.got));
     // Proxies aborted mid-race stay eligible for "Try another": they may be perfectly fine.
@@ -424,6 +432,7 @@ async function connectCustom(serverId) {
 }
 
 async function disconnect() {
+  connectSeq++;
   await chrome.storage.local.set({ autoFailures: [] });
   await clearProxy();
   await setState({ status: "disconnected", target: null, proxy: null, info: null, latencyMs: null, tried: [], note: null, lastError: null });
