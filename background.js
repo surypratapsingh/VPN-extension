@@ -308,6 +308,27 @@ async function raceBatch(batch, countryCode, fallback) {
 
 const proxyKey = (p) => `${p.host}:${p.port}`;
 
+// Proxy source health: a dead list entry used to be re-raced on every Connect. Count
+// probe failures per host:port in storage; after PROXY_FAILURE_LIMIT the proxy is left
+// out of the pool, and a proxy that wins a race has its count cleared. "Refresh list"
+// clears the counts so those entries get another chance. Pure, so it is tested directly.
+const PROXY_FAILURE_LIMIT = 3;
+
+function updateProxyHealth(pool, failures, dead = [], winner = null, limit = PROXY_FAILURE_LIMIT) {
+  const resolvedPool = pool || [];
+  const inPool = new Set(resolvedPool.map(proxyKey));
+  const counts = {};
+  for (const [key, n] of Object.entries(failures || {})) {
+    if (inPool.has(key) && n > 0) counts[key] = Math.min(n, limit);
+  }
+  for (const key of dead || []) {
+    if (inPool.has(key)) counts[key] = Math.min((counts[key] || 0) + 1, limit);
+  }
+  if (winner) delete counts[proxyKey(winner)];
+  // Keys are limited to the current pool, so storage cannot grow across list refreshes.
+  return { pool: resolvedPool.filter((p) => (counts[proxyKey(p)] || 0) < limit), failures: counts };
+}
+
 async function connectFree(countryCode, skip = [], auto = false) {
   if (!countryCode) throw new Error("Pick a country first.");
   const before = await getState();
@@ -315,7 +336,9 @@ async function connectFree(countryCode, skip = [], auto = false) {
   const fallback = previous ? `SOCKS5 ${proxyKey(previous.proxy)}` : "DIRECT";
 
   const primaryPool = await fetchPool();
-  const pool = await getPoolForCountry(primaryPool, countryCode);
+  const { proxyFailures: storedFailures = {} } = await chrome.storage.local.get("proxyFailures");
+  let proxyFailures = storedFailures;
+  const pool = updateProxyHealth(await getPoolForCountry(primaryPool, countryCode), proxyFailures).pool;
   const candidates = pool
     .filter((p) => p.country === countryCode && !skip.includes(proxyKey(p)))
     .slice(0, MAX_CANDIDATES);
@@ -339,6 +362,9 @@ async function connectFree(countryCode, skip = [], auto = false) {
     });
 
     const result = await raceBatch(batches[round], countryCode, fallback);
+    // A proxy that keeps failing probes is dropped from later Connects in this list.
+    proxyFailures = updateProxyHealth(pool, proxyFailures, result.dead.map(proxyKey), result.winner).failures;
+    await chrome.storage.local.set({ proxyFailures });
     dead += result.dead.length;
     mismatched.push(...result.mismatched.map((m) => m.got));
     // Proxies aborted mid-race stay eligible for "Try another": they may be perfectly fine.
@@ -531,6 +557,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         case "REFRESH_POOL": {
           await fetchPool(true);
+          // A user-requested refresh forgets probe failures, so every entry is retried.
+          await chrome.storage.local.set({ proxyFailures: {} });
           const countries = await getCountries();
           sendResponse({ ok: true, countries });
           break;
