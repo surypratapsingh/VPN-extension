@@ -1,6 +1,11 @@
 # Progress Log
 Newest entry first. Each entry: Done / In progress / Next / Blockers.
 
+## 2026-11-10 - c12/integrate: all open work in one branch
+- Done: merged fb-geo/r8 and PRs #7, #8, #9, #4, #3, #6, #5, #1, #2 into one branch. Both tests/popup tests kept (popup.test.js from fb-geo, popup-connect.test.js from PR #7); the Connect rule is fb-geo's (empty selection). Background test groups 25-28 come from four sources. Popup tests now pass an event with preventDefault (the a11y PR made the links call it). README: no user path, check count 81.
+- Tested: node --test tests/*.test.js 7/7 pass; each file exits 0. Planted faults caught: Connect rule, failure limit, host:port hint, disconnect seq.
+- Next: owner pushes c12/integrate (or merges PRs in the order in the C-INT report). PR #2 adds a workflow file: read it first. e2e tests (Edge) were not run.
+
 ## 2026-11-08 - CI workflow + bug review (branch friend/ci)
 - Done: `.github/workflows/ci.yml` runs `node --test tests/*.test.js` on push and pull_request (Node 22, checkout/setup-node v5). README Tests section names the CI and says the e2e scripts stay manual. Reviewed `background.js` and `options.js` for listener, storage and rotation/race bugs: none found that is clear enough to fix. Two narrow races noted, not changed: (1) a Disconnect clicked in the short window before auto-rotation's first `connecting` state is overwritten when `connectFree` applies its proxy; (2) two main-frame failures arriving at the same instant can read the same `autoFailures` list and lose one count.
 - Tested: `node --test tests/*.test.js` - `# tests 3`, `# pass 3`, `# fail 0` (~16s). Workflow YAML parses with js-yaml; steps are checkout@v5, setup-node@v5, `node --test tests/*.test.js`.
