@@ -124,6 +124,7 @@ console.log(`PASS validator: ${HOST_CASES.length} valid hosts, ${HOST_ERRORS.len
   assert.equal(log.created.some((e) => e.tagName === "IMG"), false, "no <img> element was created");
 
   assert.equal(row.children[6].children[0].textContent, "Remove");
+  assert.equal(row.children[6].children[0].attrs["aria-label"], "Remove server 1", "Remove buttons have distinct names");
   console.log("PASS stored label with HTML stays plain text in its input");
 
   // Save with an invalid port: nothing is sent, the row shows an inline error.
