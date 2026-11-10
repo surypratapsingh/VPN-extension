@@ -144,7 +144,7 @@ const checks = [
   }],
   ["Custom servers link opens the options page", async () => {
     const { els, optionsOpened } = await boot(SETTLED);
-    els["options-link"].listeners.click[0]();
+    els["options-link"].listeners.click[0]({ preventDefault() {} });
     assert.equal(optionsOpened(), true);
   }],
 ];

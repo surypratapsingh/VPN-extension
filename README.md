@@ -15,7 +15,7 @@ proxy is still accepted solely on the measured exit-country check.
 
 1. Open `chrome://extensions` (or `edge://extensions`)
 2. Enable **Developer mode** (top right)
-3. Click **Load unpacked** → select `C:\Users\surya\Documents\vpn-extension`
+3. Click **Load unpacked** → select the folder that holds `manifest.json` (this repo)
 
 No configuration needed. Open the popup, pick a country, click **Connect**.
 After updating the files, click the reload icon on the extension's card.
@@ -103,7 +103,7 @@ node tests/background.test.js
 ```
 
 Runs the real `background.js` against a simulated browser whose requests
-follow the PAC script the extension generates (55 checks, ~10s, no network), including
+follow the PAC script the extension generates (81 checks, ~15s, no network), including
 the auto-switch thresholds/window/cooldown and the extra-source merge, dedupe,
 failure and cache behavior.
 
