@@ -37,6 +37,7 @@ function checkHost(raw) {
   let host = String(raw ?? "").trim();
   if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1);
   if (!host) return { error: "Enter a host name or IP address." };
+  if (host.includes("://") || host.includes("/")) return { error: "Enter only the host name, without http:// or a path." };
   if (isIPv6(host)) return { value: host };
   if (/^[^:]+:\d+$/.test(host)) return { error: "Put the port in the Port field, not the host." };
   if (host.includes(":")) return { error: "Not a valid IPv6 address." };
