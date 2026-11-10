@@ -479,6 +479,21 @@ function check(name, cond, detail = "") {
   const r27b = await e27.connect({ type: "CONNECT_FREE", countryCode: "DE" });
   check("a new connect after disconnect still works", r27b.final.status === "connected", r27b.final.status);
 
+  // --- 28. A stored custom server with a bad port is reported as such, and never applied
+  const e28 = env({ proxies: { "10.9.9.9:1080": { ms: 30, cc: "DE" } }, seed: { servers: [
+    { id: "blank", label: "Blank port", country: "DE", host: "10.9.9.9", port: "" },
+    { id: "text", label: "Text port", country: "DE", host: "10.9.9.9", port: "abc" },
+    { id: "range", label: "Big port", country: "DE", host: "10.9.9.9", port: 70000 },
+    { id: "ok", label: "Good port", country: "DE", host: "10.9.9.9", port: "1080" }
+  ] } });
+  for (const id of ["blank", "text", "range"]) {
+    const r = await e28.connect({ type: "CONNECT_CUSTOM", serverId: id });
+    check(`custom server with bad port (${id}): reported, not applied`, r.final.status === "disconnected" && /invalid port\. Fix it in Options\./.test(r.final.lastError || ""), r.final.lastError);
+  }
+  check("bad-port servers never reached the browser", e28.log.applied.every((a) => a === "CLEARED") && e28.log.pacs.length === 0, e28.log.applied.join(" "));
+  const r28 = await e28.connect({ type: "CONNECT_CUSTOM", serverId: "ok" });
+  check("valid stored port (string) still connects", r28.final.status === "connected", r28.final.lastError || r28.final.status);
+
   console.log(failures ? `\n${failures} FAILED` : "\nALL PASSED");
   process.exit(failures ? 1 : 0);
 })();
