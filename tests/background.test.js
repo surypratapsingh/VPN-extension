@@ -458,6 +458,27 @@ function check(name, cond, detail = "") {
   const r25f = await e25f.settleAuto(n25f);
   check("simultaneous failures: two at once rotate to the next proxy", r25f.status === "connected" && r25f.proxy.host === "10.8.4.2", r25f.proxy?.host);
 
+  // --- 27. Disconnect pressed while an automatic rotation is still fetching the list must stick
+  const xs27 = { hproxy: { rows: [] }, monosans: { rows: [] } };
+  const G27 = { "10.9.0.1:1080": { ms: 100, cc: "DE" }, "10.9.0.2:1080": { ms: 120, cc: "DE" } };
+  const e27 = env({ proxies: G27, pool: Object.keys(G27).map((k, i) => listing(k.split(":")[0], 1080, "DE", 99 - i)), extraSources: xs27 });
+  const r27 = await e27.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  check("disconnect race: setup connects", r27.final.status === "connected", r27.final.status);
+  xs27.hproxy = { rows: [], ms: 600 };
+  xs27.monosans = { rows: [], ms: 600 };
+  // Spaced apart so both failures count; simultaneous failures are a separate concern.
+  e27.fireError({ type: "main_frame", error: "net::ERR_TIMED_OUT", url: "https://example.com/" });
+  await new Promise((r) => setTimeout(r, 50));
+  e27.fireError({ type: "main_frame", error: "net::ERR_TIMED_OUT", url: "https://example.com/" });
+  await new Promise((r) => setTimeout(r, 150)); // rotation is now waiting on the slow list
+  await e27.send({ type: "DISCONNECT" });
+  const applied27 = e27.log.applied.length, pacs27 = e27.log.pacs.length;
+  await new Promise((r) => setTimeout(r, 1500));
+  check("disconnect during rotation sticks", e27.store.state.status === "disconnected", e27.store.state.status);
+  check("disconnect during rotation: no proxy applied afterwards", e27.log.applied.length === applied27 && e27.log.pacs.length === pacs27, `applied+${e27.log.applied.length - applied27} pac+${e27.log.pacs.length - pacs27}`);
+  const r27b = await e27.connect({ type: "CONNECT_FREE", countryCode: "DE" });
+  check("a new connect after disconnect still works", r27b.final.status === "connected", r27b.final.status);
+
   console.log(failures ? `\n${failures} FAILED` : "\nALL PASSED");
   process.exit(failures ? 1 : 0);
 })();
