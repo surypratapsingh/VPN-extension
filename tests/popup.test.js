@@ -38,7 +38,7 @@ class El {
     (this.listeners[type] ||= []).push(fn);
   }
   async click() {
-    for (const fn of this.listeners.click || []) await fn({ target: this });
+    for (const fn of this.listeners.click || []) await fn({ target: this, preventDefault() { this.prevented = true; } });
   }
   get textContent() {
     return this._text;
