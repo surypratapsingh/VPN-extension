@@ -46,6 +46,7 @@ function renderOptions() {
 
   if (!selectEl.options.length) {
     const opt = document.createElement("option");
+    opt.value = "";
     opt.textContent = "No proxies available";
     selectEl.appendChild(opt);
     connectBtn.disabled = true;
@@ -61,7 +62,7 @@ function renderState() {
   const connected = state.status === "connected";
 
   selectEl.disabled = busy || connected;
-  connectBtn.disabled = busy || !selectEl.options.length;
+  connectBtn.disabled = busy || !selectEl.value;
   connectBtn.textContent = connected ? "Disconnect" : busy ? "Connecting…" : "Connect";
   connectBtn.classList.toggle("danger", connected);
   rotateBtn.hidden = !connected;
@@ -120,6 +121,7 @@ connectBtn.addEventListener("click", async () => {
     await chrome.runtime.sendMessage({ type: "DISCONNECT" });
     return;
   }
+  if (!selectEl.value) return;
   const [kind, id] = selectEl.value.split(":");
   connectBtn.disabled = true;
   if (kind === "free") {
