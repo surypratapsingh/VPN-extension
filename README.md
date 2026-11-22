@@ -15,7 +15,7 @@ proxy is still accepted solely on the measured exit-country check.
 
 1. Open `chrome://extensions` (or `edge://extensions`)
 2. Enable **Developer mode** (top right)
-3. Click **Load unpacked** → select `C:\Users\surya\Documents\vpn-extension`
+3. Click **Load unpacked** → select the folder that holds this README
 
 No configuration needed. Open the popup, pick a country, click **Connect**.
 After updating the files, click the reload icon on the extension's card.
