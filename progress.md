@@ -33,7 +33,7 @@ Newest entry first. Each entry: Done / In progress / Next / Blockers.
 - Unsure of: none.
 
 ## 2026-10-06 - Put on GitHub
-- Done: `git init` (branch `main`), first commit, `.gitattributes` keeps `*.sh` LF. Pushed to the private repo https://github.com/surypratapsingh/VPN-extension.
+- Done: `git init` (branch `main`), first commit, `.gitattributes` keeps `*.sh` LF. Pushed to https://github.com/surypratapsingh/VPN-extension (first written as "private repo"; the repo is PUBLIC, corrected 2026-11-23).
 - Next: user reloads the extension in chrome://extensions and tries it by hand. Possible: auto-rotate when pages fail through the proxy.
 - Blockers: none.
 
