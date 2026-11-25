@@ -153,7 +153,7 @@ const LIST_TTL_MS = 10 * 60 * 1000;
 // ~10% of live proxies answer, and those make browsing slow anyway.
 const PROBE_TIMEOUT_MS = 5000;
 const MAX_CANDIDATES = 18;
-const IPV4 = /^(\d{1,3}\.){3}\d{1,3}$/;
+const IPV4 = /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
 
 let refreshing = null;
 
